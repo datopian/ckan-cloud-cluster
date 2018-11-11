@@ -102,3 +102,8 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+traefik-values.yaml
+.aws-auth.yaml
+
+.idea
