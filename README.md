@@ -148,6 +148,8 @@ dm_ssh_sudo systemctl restart nginx
 
 Open Rancher at the management domain and activate Rancher via the Web UI
 
+## Create a cluster
+
 Use the Rancher UI to create a new Amazon EKS cluster
 
     * For access key / secret key - you should create a new IAM user which will be used only for this purpose
@@ -158,226 +160,139 @@ Use the Rancher UI to create a new Amazon EKS cluster
 Follow Rancher logs
 
 ```
-./rancher.sh logs -f
+eval $(docker-machine env ckan-cloud-management) &&\
+docker logs -f cca-rancher
 ```
 
-When the cluster is ready, open the cluster and click on `Kubeconfig File`
-
-copy to clipboard and save in the management server under `/etc/ckan-cloud/.kube-config`
-
-## Verify connection to the cluster
-
-[Install Kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-
-```
-sudo apt-get update && sudo apt-get install -y apt-transport-https
-curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list
-sudo apt-get update
-sudo apt-get install -y kubectl
-```
-
-Verify you are connected to the cluster:
-
-```
-export KUBECONFIG=/etc/ckan-cloud/.kube-config &&\
-kubectl get nodes
-```
-
-## Install Helm
-
-[Install Helm client](https://docs.helm.sh/using_helm/#installing-helm)
-
-```
-HELM_VERSION=v2.11.0
-
-curl https://raw.githubusercontent.com/kubernetes/helm/master/scripts/get > get_helm.sh &&\
-     chmod 700 get_helm.sh &&\
-     ./get_helm.sh --version "${HELM_VERSION}" &&\
-     helm version --client && rm ./get_helm.sh
-```
-
-Create RBAC
-
-```
-export KUBECONFIG=/etc/ckan-cloud/.kube-config &&\
-kubectl -n kube-system create serviceaccount tiller &&\
-kubectl -n kube-system create clusterrolebinding tiller --clusterrole cluster-admin --serviceaccount=kube-system:tiller
-```
-
-Initialize Helm and restrict for interaction only via the Helm CLI ([source](https://engineering.bitnami.com/articles/helm-security.html))
-
-```
-export KUBECONFIG=/etc/ckan-cloud/.kube-config &&\
-helm init --service-account tiller --history-max 2 --upgrade --wait &&\
-kubectl -n kube-system delete service tiller-deploy &&\
-kubectl -n kube-system patch deployment tiller-deploy --patch 'spec:
-  template:
-    spec:
-      containers:
-        - name: tiller
-          ports: []
-          command: ["/tiller"]
-          args: ["--listen=localhost:44134"]' &&\
-helm version
-```
-
-## Create persistent storage
+## Preparing the cluster for CKAN Cloud
 
 Create an Amazon EFS filesystem in the same VPC as the Kubernetes cluster
 
 Assign the EFS mount targets to the same security group as the worker nodes
 
-Save the EFS details
+From the Rancher web-ui:
+
+* Switch to the Global project > catalogs > add catalog:
+  * Name: `ckan-cloud-stable`
+  * Catalog URL: `https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-helm/master/charts_repository`
+* Switch to the ckan-cloud `Default` project > Catalog Apps:
+  * Launch `efs` from the `ckan-cloud-stable` catalog
+    * Change namespace to use the existing `default` namespace
+    * Set the following values:
+      * `efsFileSystemID`: Id of Amazon EFS filesystem
+      * `efsFileSystemRegion`: The region of the EFS filesystem
+* Switch to `Cluster: ckan-cloud` > Storage > Storage classes:
+  * Create a storage class called `cca-storage` using Amazon EBS Disk provisioner
+* Switch to `Cluster: ckan-cloud` > Launch kubectl:
+  * `kubectl create -n default service loadbalancer traefik --tcp=80:80 --tcp=443:443`
+* In AWS console: set a security group for the load balancer, alowing access to ports 80, 443 from anywhere
+* get the load balancer hostname:
+  * rancher > ckan-cloud > launch kubectl: `kubectl -n default get service traefik -o yaml`
+  * create CNAME from your custom domain to the load balancer hostname
+
+## Deploy the load balancer
+
+* In Rancher - Switch to the ckan-cloud `Default` project:
+  * Resources > Configmaps > Add Config Map
+    * Name: `etc-traefik`
+    * Namespace: default
+    * Config map value:
+      * `traefik.toml` = paste the following config (modify the domain)
 
 ```
-echo "EFS_FILE_SYSTEM_ID=
-EFS_FILE_SYSTEM_REGION=" | sudo tee /etc/ckan-cloud/.efs.env
+debug = false
+defaultEntryPoints = ["http", "https"]
+
+[entryPoints]
+    [entryPoints.http]
+        address = ":80"
+
+    [entryPoints.https]
+        address = ":443"
+          [entryPoints.https.tls]
+
+    [ping]
+      entryPoint = "http"
+
+    [acme]
+      email = your-email@your-domain.com
+      storage = "/traefik-acme/acme.json"
+      entryPoint = "https"
+
+      [[acme.domains]]
+        main = 'example.com'
+        sans = ['test1.example.com']
+
+      [acme.dnsChallenge]
+        provider = 'route53|cloudflare'
+
+    [accessLog]
+
+    [file]
+
+    [backends]
+      [backends.test1]
+        [backends.test1.servers.server1]
+          url = 'http://nginx.test1'
+
+    [frontends]
+      [frontends.test1]
+        backend='test1'
+        passHostHeader = true
+        [frontends.test1.headers]
+          SSLRedirect = true
+        [frontends.test1.routes.route1]
+          rule = 'Host:test1.example.com'
 ```
 
-Deploy the EFS provisioner
+* In Rancher - Switch to the ckan-cloud `Default` project:
+  * Catalog Apps > Launch `traefik` from the `ckan-cloud-stable` catalog
+  * Paste the following values (modify accordingly and create secrets as instructed)
 
 ```
-source /etc/ckan-cloud/.efs.env &&\
-SET_VALUES="--set efsFileSystemID=${EFS_FILE_SYSTEM_ID} \
-            --set efsFileSystemRegion=${EFS_FILE_SYSTEM_REGION}" &&\
-export KUBECONFIG=/etc/ckan-cloud/.kube-config &&\
-helm upgrade efs efs --namespace default --install $SET_VALUES --dry-run &&\
-helm upgrade efs efs --namespace default --install $SET_VALUES
+dnsProvider=route53|cloudflare
+AWS_ACCESS_KEY_ID=
+AWS_REGION=
+awsSecretName=secret_with_AWS_SECRET_ACCESS_KEY_value
+CLOUDFLARE_EMAIL=
+CLOUDFLARE_API_KEY=
+cfSecretName=secret_with_CLOUDFLARE_API_KEY_value
 ```
 
-Using Rancher Web UI - Create a storage class called `cca-storage` using Amazon EBS Disk provisioner
+If you edit the configmap to make changes, you need to manually restart the loadbalancer:
+* Rancher > ckan-cloud > default > workloads > traefik > redeploy
 
-## Create a load balancer
+## Start a CKAN instance
 
-Create the load balancer service:
-
-```
-export KUBECONFIG=/etc/ckan-cloud/.kube-config &&\
-kubectl create -n default service loadbalancer traefik --tcp=80:80 --tcp=443:443
-```
-
-Open AWS Console and get the load balancer hostname
-
-Set a security group for the load balancer, alowing access to ports 80, 443 from anywhere
-
-Create a CNAME from your domains to the load balancer hostname
-
-Create the load balancer configuration in `/etc/ckan-cloud/traefik-values.yaml`:
+Rancher > ckan-cloud > launch kubectl:
 
 ```
-# the ReadWriteMany storage class name
-ckanStorageClassName: "cca-ckan"
-
-acmeEmail: ""
-
-# see https://docs.traefik.io/configuration/acme/
-acmeDomains: |
-  [[acme.domains]]
-    main = "example.com"
-    sans = ["domain1.example.com", "domain2.example.com"]
-
-# cloudflare or route53
-dnsProvider: ""
-
-# route53:
-AWS_ACCESS_KEY_ID: ""
-AWS_REGION: ""
-# kubectl create secret generic -n default traefik-aws --from-literal=AWS_SECRET_ACCESS_KEY=
-awsSecretName: traefik-aws
-
-# cloudflare
-CLOUDFLARE_EMAIL: ""
-# kubectl create secret generic -n default traefik-cf --from-literal=CLOUDFLARE_API_KEY=
-cfSecretName: traefik-cf
-
-# see https://docs.traefik.io/configuration/backends/file/
-
-backends: |
-  [backends.test1]
-    [backends.test1.servers.server1]
-      url = http://nginx.test1
-
-  [backends.test2]
-    [backends.test2.servers.server1]
-      url = http://nginx.test2
-
-frontends: |
-  [frontends.test1]
-    backend="test1"
-    passHostHeader = true
-    [frontends.test1.headers]
-      SSLRedirect = true
-    [frontends.test1.routes.route1]
-      rule = "Host:domain1.example.com"
-
-  [frontends.test2]
-    backend="test2"
-    passHostHeader = true
-    [frontends.test2.headers]
-      SSLRedirect = true
-    [frontends.test2.routes.route1]
-      rule = "Host:domain2.example.com"
+CKAN_NAMESPACE=test1 &&\
+kubectl create ns "${CKAN_NAMESPACE}" &&\
+kubectl --namespace "${CKAN_NAMESPACE}" \
+    create serviceaccount "ckan-${CKAN_NAMESPACE}-operator" &&\
+kubectl --namespace "${CKAN_NAMESPACE}" \
+    create role "ckan-${CKAN_NAMESPACE}-operator-role" --verb list,get,create \
+                                                       --resource secrets,pods,pods/exec,pods/portforward &&\
+kubectl --namespace "${CKAN_NAMESPACE}" \
+    create rolebinding "ckan-${CKAN_NAMESPACE}-operator-rolebinding" --role "ckan-${CKAN_NAMESPACE}-operator-role" \
+                                                                     --serviceaccount "${CKAN_NAMESPACE}:ckan-${CKAN_NAMESPACE}-operator"
 ```
 
-Deploy the load balancer:
+* Rancher > ckan-cloud > Projects/Namespaces > Create project test1 and add the namespace to it
+* Rancher > ckan-cloud > test1 > Catalog Apps > Launch ckan chart from ckan-cloud-stable repo
+  * Use existing namespace `test`
+  * set the following values:
 
 ```
-export KUBECONFIG=/etc/ckan-cloud/.kube-config &&\
-helm upgrade traefik traefik --namespace default -if /etc/ckan-cloud/traefik-values.yaml --dry-run &&\
-helm upgrade traefik traefik --namespace default -if /etc/ckan-cloud/traefik-values.yaml
+siteUrl=https://test1.your-domain.com
+replicas=1
+nginxReplicas=1
 ```
 
-## Launching worker nodes
+* Wait for `test1` workloads to be Running
+* Create an admin user:
+  * Rancher > ckan-cloud > test1 > workloads > ckan > launch shell:
+    * `ckan-paster --plugin=ckan sysadmin -c /etc/ckan/production.ini add admin password=12345678 email=admin@localhost`
 
-see https://docs.aws.amazon.com/eks/latest/userguide/launch-workers.html
-
-## Interact with the cca-operator on the ckan-cloud management server
-
-Following commands assume you have a configured SSH host named `ckan-cloud-management` allowing passwordless ssh to the ckan-cloud management server
-
-List instances:
-
-```
-ssh ckan-cloud-management /etc/ckan-cloud/cca_operator.sh ./list-instances.sh
-```
-
-Delete instance:
-
-```
-ssh ckan-cloud-management /etc/ckan-cloud/cca_operator.sh ./delete-instance.sh <INSTANCE_ID>
-```
-
-Create instance:
-
-```
-# existing instance id to copy the initial values from
-export BASE_INSTANCE_ID="demo4"
-
-# the new instance id to create
-export NEW_INSTANCE_ID="demo5"
-```
-
-Copy and modify existing CKAN instance values yaml, following example uses an interactive editor:
-
-```
-ssh ckan-cloud-management sudo bash -c "! [ -e /etc/ckan-cloud/${NEW_INSTANCE_ID}_values.yaml ]" &&\
-ssh ckan-cloud-management sudo cp /etc/ckan-cloud/${BASE_INSTANCE_ID}_values.yaml /etc/ckan-cloud/${NEW_INSTANCE_ID}_values.yaml &&\
-ssh -t ckan-cloud-management sudo mcedit /etc/ckan-cloud/${NEW_INSTANCE_ID}_values.yaml
-```
-
-Review the values:
-
-```
-ssh ckan-cloud-management sudo cat /etc/ckan-cloud/${NEW_INSTANCE_ID}_values.yaml
-```
-
-Create the instance:
-
-```
-ssh ckan-cloud-management /etc/ckan-cloud/cca_operator.sh ./create-instance.sh "${NEW_INSTANCE_ID}"
-```
-
-## Install Jenkins
-
-**TODO**
+Log-in to CKAN at https://test1.your-domain.com
