@@ -121,7 +121,7 @@ Create the Rancher data directory:
 docker-machine ssh ckan-cloud-management sudo mkdir -p /etc/ckan-cloud/rancher
 ```
 
-Start Rancher (you can use the amazon ec2 public IP domain):
+Start Rancher:
 
 ```
 eval $(docker-machine env ckan-cloud-management) &&\
