@@ -1,13 +1,13 @@
 # CKAN Cloud Cluster Provisioning and Management
 
-Documentation and code for provisioning and running a CKAN Cloud cluster.
+Documentation and code for provisioning and running CKAN Cloud clusters.
 
 ## Setup the CKAN Cloud management server
 
-The CKAN Cloud management server is used to setup the Kubernetes cluster and handle different aspects of managing the CKAN Cloud service.
+The CKAN Cloud management server provisions and manages CKAN Cloud clusters.
 
 * [Install Docker Machine](https://docs.docker.com/machine/install-machine/)
-  * Following works on Linux:
+  * Following works on Linux which has Docker already installed:
 
 ```
 base=https://github.com/docker/machine/releases/download/v0.14.0 &&
@@ -21,19 +21,30 @@ Verify:
 docker-machine version
 ```
 
-Create (or use existing) AWS resources and note the resource ids
+Set a unique CKAN Cloud namespace name for this cloud management server and create the configuration directory
+
+```
+CKAN_CLOUD_NAMESPACE=my-cloud
+mkdir -p /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}
+```
+
+Generate an SSH key to access the machine
+
+```
+ssh-keygen -t rsa -b 4096 -C "admin@ckan-cloud-management" -f /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-id_rsa
+```
+
+Create the following AWS resources and note the resource ids
 
 For a secure production deployment, the following resources should be used only for the CKAN cloud management services and separate from the cluster workloads:
 
+* Import the generated SSH key to AWS EC2 key pairs
 * VPC
 * Security group:
    * allow ports 80 and 443 from anywhere
    * allow SSH from specific IPs
    * allow port 2376 (docker engine) from specific IPs
 * Public subnet under the VPC
-* SSH key to access the machine:
-  * `ssh-keygen -t rsa -b 4096 -C "admin@ckan-cloud-management" -f /etc/ckan-cloud/.cloud-management-id_rsa`
-  * Import the SSH key to AWS EC2 key pairs
 * Elastic IP
 
 Launch the EC2 instance:
@@ -42,19 +53,22 @@ Launch the EC2 instance:
 * Instance Type: m5d.large (recommended for secure and scalable production deployment)
 * Use the previously created VPC / security group / subnet / key-pair / ip
 
-Create a configuration for Docker Machine in `/etc/ckan-cloud/.cloud-management-docker-machine.env`:
+Create the Docker Machine configuration (set the instance's public hostname in GENERIC_IP_ADDRESS)
 
 ```
-export MACHINE_DRIVER=generic
+echo "
 export GENERIC_IP_ADDRESS=
-export GENERIC_SSH_KEY=/etc/ckan-cloud/.cloud-management-id_rsa
+export MACHINE_DRIVER=generic
+export GENERIC_SSH_KEY=/etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-id_rsa
 export GENERIC_SSH_USER=ubuntu
+" > /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-docker-machine.env
 ```
 
-Setup the instance as a Docker Machine
+Initialize the instance as a Docker Machine (using the generic SSH driver)
 
 ```
-source /etc/ckan-cloud/.cloud-management-docker-machine.env && docker-machine create ckan-cloud-management
+source /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-docker-machine.env
+docker-machine create ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management
 ```
 
 If you used the recommended instance type of m5d.large run the following steps as well:
@@ -68,87 +82,96 @@ If you used the recommended instance type of m5d.large run the following steps a
 * Reload and restart docker: `sudo systemctl daemon-reload && sudo systemctl restart docker`
 * Verify: `sudo docker info | grep /mnt/ssd/docker-data && sudo docker info | grep overlay2`
 
+Activate the machine
+
+```
+eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
+```
+
 Verify Docker Machine installation:
 
 ```
-eval $(docker-machine env ckan-cloud-management) &&\
 docker version && docker run hello-world
 ```
 
+Initialize ckan-cloud-cluster v0.0.2
+
+```
+CKAN_CLOUD_CLUSTER_VERSION=0.0.2
+
+curl -L https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-cluster/v${CKAN_CLOUD_CLUSTER_VERSION}/ckan-cloud-cluster.sh \
+    | bash -s init $CKAN_CLOUD_CLUSTER_VERSION
+```
+
+If you want to install latest dev version of ckan-cloud-cluster - clone the code, and run the following from the ckan-cloud-cluster project directory: `./ckan-cloud-cluster.sh init_dev`
+
 ## Install Nginx and SSL
 
-Nginx is used for the central entrypoint to the management server and provides SSL using Let's encrypt
+Install and configure Nginx and Let's Encrypt (will delete any existing configurations)
 
 ```
-dm_ssh_sudo() {
-    docker-machine ssh ckan-cloud-management sudo "$@"
-}
-dm_scp_sudo() {
-    cat "${1}" | docker-machine ssh ckan-cloud-management -- bash -c 'cat | sudo tee '${2}
-}
-dm_ssh_sudo apt update -y &&\
-dm_ssh_sudo apt install -y nginx certbot &&\
-dm_ssh_sudo openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 &&\
-dm_ssh_sudo mkdir -p /var/lib/letsencrypt/.well-known &&\
-dm_ssh_sudo chgrp www-data /var/lib/letsencrypt &&\
-dm_ssh_sudo chmod g+s /var/lib/letsencrypt &&\
-dm_scp_sudo nginx/letsencrypt.conf /etc/nginx/snippets/letsencrypt.conf &&\
-dm_scp_sudo nginx/ssl.conf /etc/nginx/snippets/ssl.conf &&\
-dm_scp_sudo nginx/default.conf /etc/nginx/sites-enabled/default &&\
-dm_ssh_sudo systemctl restart nginx
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster install_nginx_ssl
 ```
 
-Create an SSL certificate using Let's encrypt -
+Get the server's hostname:
 
 ```
-LETSENCRYPT_EMAIL=me@company.com
-LETSENCRYPT_DOMAIN=cloud-management.my-cluster.com
-dm_ssh_sudo certbot certonly --agree-tos --email ${LETSENCRYPT_EMAIL} --webroot -w /var/lib/letsencrypt/ -d ${LETSENCRYPT_DOMAIN} &&\
-echo "
-  ssl_certificate /etc/letsencrypt/live/${LETSENCRYPT_DOMAIN}/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/${LETSENCRYPT_DOMAIN}/privkey.pem;
-  ssl_trusted_certificate /etc/letsencrypt/live/${LETSENCRYPT_DOMAIN}/chain.pem;
-" | docker-machine ssh ckan-cloud-management -- bash -c 'cat | sudo tee /etc/nginx/snippets/cloud_management_certs.conf'
+docker-machine ssh $(docker-machine active) curl -s http://169.254.169.254/latest/meta-data/public-hostname; echo
 ```
 
-## Install Rancher
+Set DNS CNAME records for the following subdomains to this IP:
 
-Rancher is used to provision and manage Kubernetes clusters
+* `ckan-cloud-management.your-domain.com` - serves Rancher
+* `ckan-cloud-jenkins.your-domain.com` - serves Jenkins
 
-Create the Rancher data directory:
+(for maximal security, add a CAA record: `your-domain.com. CAA 128 issue "letsencrypt.org"`)
 
-```
-docker-machine ssh ckan-cloud-management sudo mkdir -p /etc/ckan-cloud/rancher
-```
-
-Start Rancher (you can use the amazon ec2 public IP domain):
+Register the SSL certificates
 
 ```
-eval $(docker-machine env ckan-cloud-management) &&\
-docker run -d --name cca-rancher --restart unless-stopped \
-               -p 8000:80 \
-               -v "/etc/ckan-cloud/rancher:/var/lib/rancher" \
-               rancher/rancher:stable
+LETSENCRYPT_EMAIL=your@email.com
+CERTBOT_DOMAINS="ckan-cloud-management.your-domain.com,ckan-cloud-jenkins.your-domain.com"
+LETSENCRYPT_DOMAIN=ckan-cloud-management.your-domain.com
+
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster setup_ssl ${LETSENCRYPT_EMAIL} ${CERTBOT_DOMAINS} ${LETSENCRYPT_DOMAIN}
 ```
 
-Check the logs and make sure Rancher started properly:
+## Deploy Rancher
+
+Activate the machine
 
 ```
-eval $(docker-machine env ckan-cloud-management) &&\
-docker logs -f cca-rancher
+CKAN_CLOUD_NAMESPACE=my-cloud
+eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
 ```
 
-Add Rancher to NGINX serving on the let's encrypt domain
+Create the Rancher data directory
 
 ```
-dm_scp_sudo nginx/rancher.conf /etc/nginx/sites-enabled/rancher &&\
-echo "  server_name ${LETSENCRYPT_DOMAIN};" | docker-machine ssh ckan-cloud-management -- bash -c 'cat | sudo tee /etc/nginx/snippets/rancher_server_name.conf' &&\
-dm_ssh_sudo systemctl restart nginx
+docker-machine ssh $(docker-machine active) sudo mkdir -p /var/lib/rancher
 ```
 
-Open Rancher at the management domain and activate Rancher via the Web UI
+Start Rancher
 
-## Create a cluster
+```
+docker run -d --name rancher --restart unless-stopped -p 8000:80 \
+           -v "/var/lib/rancher:/var/lib/rancher" rancher/rancher:stable
+```
+
+Add Rancher to Nginx
+
+```
+SERVER_NAME=ckan-cloud-management.your-domain.com
+SITE_NAME=rancher
+NGINX_CONFIG_SNIPPET=rancher
+PROXY_PASS_PORT=8000
+
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster add_nginx_site_http2_proxy ${SERVER_NAME} ${SITE_NAME} ${NGINX_CONFIG_SNIPPET} ${PROXY_PASS_PORT}
+```
+
+Activate via the web-ui at https://ckan-cloud-management.your-domain.com/
+
+## Create a cluster for CKAN Cloud
 
 Use the Rancher UI to create a new Amazon EKS cluster
 
@@ -156,15 +179,6 @@ Use the Rancher UI to create a new Amazon EKS cluster
     * enable Public IP for worker nodes and the Rancher created VPC and subnets
     * Minimum asg of 1-2 nodes, m4.large machine type
     * Wait for cluster to be provisioned, it may take a while...
-
-Follow Rancher logs
-
-```
-eval $(docker-machine env ckan-cloud-management) &&\
-docker logs -f cca-rancher
-```
-
-## Preparing the cluster for CKAN Cloud
 
 Create an Amazon EFS filesystem in the same VPC as the Kubernetes cluster
 
@@ -259,40 +273,205 @@ CLOUDFLARE_API_KEY=
 cfSecretName=secret_with_CLOUDFLARE_API_KEY_value
 ```
 
-If you edit the configmap to make changes, you need to manually restart the loadbalancer:
+You can edit the etc-traefik configmap to make change to the load balancer
+
+For the changes to take effet, you need to manually restart the loadbalancer:
+
 * Rancher > ckan-cloud > default > workloads > traefik > redeploy
 
-## Start a CKAN instance
+## Deploy Jenkins
 
-Rancher > ckan-cloud > launch kubectl:
-
-```
-CKAN_NAMESPACE=test1 &&\
-kubectl create ns "${CKAN_NAMESPACE}" &&\
-kubectl --namespace "${CKAN_NAMESPACE}" \
-    create serviceaccount "ckan-${CKAN_NAMESPACE}-operator" &&\
-kubectl --namespace "${CKAN_NAMESPACE}" \
-    create role "ckan-${CKAN_NAMESPACE}-operator-role" --verb list,get,create \
-                                                       --resource secrets,pods,pods/exec,pods/portforward &&\
-kubectl --namespace "${CKAN_NAMESPACE}" \
-    create rolebinding "ckan-${CKAN_NAMESPACE}-operator-rolebinding" --role "ckan-${CKAN_NAMESPACE}-operator-role" \
-                                                                     --serviceaccount "${CKAN_NAMESPACE}:ckan-${CKAN_NAMESPACE}-operator"
-```
-
-* Rancher > ckan-cloud > Projects/Namespaces > Create project test1 and add the namespace to it
-* Rancher > ckan-cloud > test1 > Catalog Apps > Launch ckan chart from ckan-cloud-stable repo
-  * Use existing namespace `test`
-  * set the following values:
+Activate the machine
 
 ```
-siteUrl=https://test1.your-domain.com
-replicas=1
-nginxReplicas=1
+CKAN_CLOUD_NAMESPACE=my-cloud
+eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
 ```
 
-* Wait for `test1` workloads to be Running
-* Create an admin user:
-  * Rancher > ckan-cloud > test1 > workloads > ckan > launch shell:
-    * `ckan-paster --plugin=ckan sysadmin -c /etc/ckan/production.ini add admin password=12345678 email=admin@localhost`
+Create the jenkins home directory
 
-Log-in to CKAN at https://test1.your-domain.com
+```
+docker-machine ssh $(docker-machine active) 'sudo bash -c "
+    mkdir -p /var/jenkins_home && chown -R 1000:1000 /var/jenkins_home
+"'
+```
+
+Run Jenkins
+
+```
+docker run -d --name jenkins -p 8080:8080 \
+           -v /var/jenkins_home:/var/jenkins_home \
+           -v /etc/ckan-cloud:/etc/ckan-cloud \
+           -v /var/run/docker.sock:/var/run/docker.sock \
+           viderum/ckan-cloud-docker:jenkins-v0.0.2
+```
+
+Add Jenkins to Nginx
+
+```
+SERVER_NAME=ckan-cloud-jenkins.your-domain.com
+SITE_NAME=jenkins
+NGINX_CONFIG_SNIPPET=jenkins
+PROXY_PASS_PORT=8080
+
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster add_nginx_site_http2_proxy ${SERVER_NAME} ${SITE_NAME} ${NGINX_CONFIG_SNIPPET} ${PROXY_PASS_PORT}
+```
+
+Get the admin password
+
+```
+docker-machine ssh $(docker-machine active) sudo cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+Activate via the web-ui at https://ckan-cloud-jenkins.your-domain.com
+
+Install suggested plugins
+
+## Initialize CKAN Cloud
+
+Activate the machine
+
+```
+CKAN_CLOUD_NAMESPACE=my-cloud
+eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
+```
+
+Download the relevant version of ckan-cloud-docker
+
+```
+CKAN_CLOUD_DOCKER_VERSION=0.0.2
+
+docker-machine ssh $(docker-machine active) 'bash -c "
+    sudo mkdir -p /etc/ckan-cloud/ckan-cloud-docker &&\
+    sudo chown -R 1000:1000 /etc/ckan-cloud &&\
+    wget -q https://github.com/ViderumGlobal/ckan-cloud-docker/archive/v'${CKAN_CLOUD_DOCKER_VERSION}'.tar.gz &&\
+    tar -xzf v'${CKAN_CLOUD_DOCKER_VERSION}'.tar.gz &&\
+    cp -rf ckan-cloud-docker-'${CKAN_CLOUD_DOCKER_VERSION}'/* /etc/ckan-cloud/ckan-cloud-docker &&\
+    rm -rf ckan-cloud-docker-'${CKAN_CLOUD_DOCKER_VERSION}' && rm v'${CKAN_CLOUD_DOCKER_VERSION}'.tar.gz
+"' && echo Great Success!
+```
+
+Copy the preconfigured Jenkins job configurations
+
+```
+docker-machine ssh $(docker-machine active) 'bash -c "
+    sudo mkdir -p /var/jenkins_home/jobs && sudo chown -R 1000:1000 /var/jenkins_home &&\
+    cp -rf /etc/ckan-cloud/ckan-cloud-docker/jenkins/jobs/* /var/jenkins_home/jobs/
+"' && echo Great Success!
+```
+
+Generate an API key in Rancher > top right profile image > API & Keys
+
+Create a kubeconfig for cca-operator using the Rancher API key values:
+
+```
+CLUSTER_NAME=ckan-cloud
+RANCHER_API_CLUSTER_URL=https://ckan-cloud-management.your-domain.com/k8s/clusters/c-zzzzz
+RANCHER_API_ACCESS_KEY="token-xxxxx"
+RANCHER_API_BEARER_TOKEN="token-xxxxx:yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+
+echo 'apiVersion: v1
+kind: Config
+clusters:
+- name: "'${CLUSTER_NAME}'"
+  cluster:
+    server: "https://ckan-cloud-management.datagov.us/k8s/clusters/c-5mgh6"
+    api-version: v1
+users:
+- name: "'${RANCHER_API_ACCESS_KEY}'"
+  user:
+    token: "'${RANCHER_API_BEARER_TOKEN}'"
+contexts:
+- name: "'${CLUSTER_NAME}'"
+  context:
+    user: "'${RANCHER_API_ACCESS_KEY}'"
+    cluster: "'${CLUSTER_NAME}'"
+current-context: "'${CLUSTER_NAME}'"' | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.kube-config"'
+```
+
+Configure cca-operator
+
+```
+# cloudflare settings to register sub-domains
+CF_AUTH_EMAIL=""
+CF_AUTH_KEY=""
+CF_ZONE_NAME=""
+
+CCA_OPERATOR_IMAGE="viderum/ckan-cloud-docker:cca-operator-v0.0.2"
+
+echo '#!/usr/bin/env bash
+if [ "${QUIET}" == "1" ]; then
+    sudo docker run ${CCA_OPERATOR_DOCKER_RUN_ARGS:--i} --rm \
+        -v /etc/ckan-cloud:/etc/ckan-cloud \
+        -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
+        -e CF_AUTH_EMAIL='${CF_AUTH_EMAIL}' -e CF_AUTH_KEY='${CF_AUTH_KEY}' -e CF_ZONE_NAME='${CF_ZONE_NAME}' \
+        '${CCA_OPERATOR_IMAGE}' \
+        2>/dev/null "$@"
+else
+    sudo docker run ${CCA_OPERATOR_DOCKER_RUN_ARGS:--i} --rm \
+        -v /etc/ckan-cloud:/etc/ckan-cloud \
+        -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
+        -e CF_AUTH_EMAIL='${CF_AUTH_EMAIL}' -e CF_AUTH_KEY='${CF_AUTH_KEY}' -e CF_ZONE_NAME='${CF_ZONE_NAME}' \
+        '${CCA_OPERATOR_IMAGE}' \
+        "$@"
+fi' | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/cca_operator.sh"' &&\
+echo '#!/usr/bin/env bash
+CCA_OPERATOR_DOCKER_RUN_ARGS="-it" /etc/ckan-cloud/cca_operator.sh --' \
+    | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/cca_operator_shell.sh"' &&\
+docker-machine ssh $(docker-machine active) chmod +x /etc/ckan-cloud/*.sh && echo Great Success!
+```
+
+Install Helm:
+
+```
+docker-machine ssh $(docker-machine active) '/etc/ckan-cloud/cca_operator.sh -c "
+    kubectl --namespace kube-system create serviceaccount tiller &&\
+    kubectl create clusterrolebinding tiller --clusterrole cluster-admin --serviceaccount=kube-system:tiller &&\
+    helm init --service-account tiller --history-max 2 --upgrade --wait &&\
+    kubectl -n kube-system delete service tiller-deploy &&\
+    helm version
+"' && echo Great Success
+```
+
+Recommended - limit Helm access to CLI only, run the following in Rancher kubectl shell
+
+```
+kubectl -n kube-system delete service tiller-deploy &&\
+kubectl -n kube-system patch deployment tiller-deploy --patch '
+spec:
+  template:
+    spec:
+      containers:
+        - name: tiller
+          ports: []
+          command: ["/tiller"]
+          args: ["--listen=localhost:44134"]'
+```
+
+Reload the Jenkins jobs - Jenkins web-ui > manage jenkins > reload configurations from disk
+
+Manage CKAN instances using the cluster administration Jenkins jobs
+
+## Using cca-operator CLI
+
+Activate the machine
+
+```
+CKAN_CLOUD_NAMESPACE=my-cloud
+eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
+```
+
+Run a cca-operator command:
+
+```
+docker-machine ssh $(docker-machine active) /etc/ckan-cloud/cca_operator.sh ./list-instances.sh
+```
+
+Run cca-operator interactive shell:
+
+```
+docker-machine ssh $(docker-machine active) -tt /etc/ckan-cloud/cca_operator_shell.sh
+$ ./list-instances.sh
+$ kubectl get nodes
+```
+
