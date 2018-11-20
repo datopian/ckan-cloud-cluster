@@ -188,8 +188,8 @@ init() {
         "'
     docker-machine ssh ${ACTIVE_DOCKER_MACHINE} \
         'sudo bash -c "
-            TEMPDIR=`mktemp -d` && cd \$TEMPDIR &&\
-            wget -q https://github.com/OriHoch/ckan-cloud-cluster/archive/v'${CKAN_CLOUD_CLUSTER_VERSION}'.tar.gz &&\
+            TEMPDIR=`mktemp -d` && cd /$TEMPDIR &&\
+            wget -q https://github.com/ViderumGlobal/ckan-cloud-cluster/archive/v'${CKAN_CLOUD_CLUSTER_VERSION}'.tar.gz &&\
             tar -xzf 'v${CKAN_CLOUD_CLUSTER_VERSION}'.tar.gz &&\
             cp -rf ckan-cloud-cluster-'${CKAN_CLOUD_CLUSTER_VERSION}'/* /usr/local/src/ckan-cloud-cluster/ &&\
             cp -f /usr/local/src/ckan-cloud-cluster/ckan-cloud-cluster.sh /usr/local/bin/ckan-cloud-cluster &&\

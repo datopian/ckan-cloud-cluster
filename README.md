@@ -285,7 +285,7 @@ Activate via the web-ui at https://ckan-cloud-jenkins.your-domain.com
 Initialize:
 
 ```
-CKAN_CLOUD_DOCKER_VERSION=0.0.2
+CKAN_CLOUD_DOCKER_VERSION=0.0.3
 
 docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster init_ckan_cloud ${CKAN_CLOUD_DOCKER_VERSION}
 ```
