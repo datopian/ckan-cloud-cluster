@@ -279,6 +279,21 @@ start_jenkins() {
     add_nginx_site_http2_proxy ${SERVER_NAME} ${SITE_NAME} ${NGINX_CONFIG_SNIPPET} ${PROXY_PASS_PORT}
 }
 
+start_cca_operator_server() {
+    ! server_side && return 1
+    docker rm -f cca-operator-server >/dev/null 2>&1
+    source /etc/ckan-cloud/.cca_operator-secrets.env &&\
+    source /etc/ckan-cloud/.cca_operator-image.env &&\
+    info Starting cca-operator server "(${CCA_OPERATOR_IMAGE})" &&\
+    docker run -d --name cca-operator-server -p 8022:22 \
+               -v /etc/ckan-cloud:/etc/ckan-cloud \
+               -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
+               -e CF_AUTH_EMAIL=${CF_AUTH_EMAIL} -e CF_AUTH_KEY=${CF_AUTH_KEY} -e CF_ZONE_NAME=${CF_ZONE_NAME} \
+               ${CCA_OPERATOR_IMAGE} ./server.sh
+    [ "$?" != "0" ] && error Failed to start cca-operator server && return 1
+    great_success && return 0
+}
+
 init_ckan_cloud() {
     ! server_side && return 1
     CKAN_CLOUD_DOCKER_VERSION="${1}"

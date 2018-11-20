@@ -390,14 +390,36 @@ echo 'export CCA_OPERATOR_IMAGE="viderum/ckan-cloud-docker:cca-operator-latest"'
 
 You can now run cca-operator commands / shell and it will use the latest locally built copy
 
+## Start cca-operator server
+
+Add your SSH key to the server
+
+```
+cat ~/.ssh/id_rsa.pub | docker-machine ssh $(docker-machine active) /etc/ckan-cloud/cca_operator.sh ./add-server-authorized-key.sh
+```
+
+Start the server, re-run after adding authorized keys
+
+```
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_cca_operator_server
+```
+
+Make sure firewall is set to permit port 8022
+
+Get the hostname
+
+```
+CCA_OPERATOR_SSH_HOST=`docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster get_aws_public_hostname`
+```
+
+Run cca-operator commands via ssh
+
+```
+ssh -p 8022 root@$CCA_OPERATOR_SSH_HOST ./cca-operator.sh ./list-instances.sh
+```
+
+
 ## Upgrade
-
-Activate the docker-machine
-
-```
-CKAN_CLOUD_NAMESPACE=my-cloud
-mkdir -p /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}
-```
 
 Upgrade to the required version from [ckan-cloud-docker](https://github.com/ViderumGlobal/ckan-cloud-docker/releases) and [ckan-cloud-cluster](https://github.com/ViderumGlobal/ckan-cloud-cluster/releases)
 
