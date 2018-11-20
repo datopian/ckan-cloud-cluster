@@ -221,4 +221,143 @@ init_dev() {
     great_success && return 0
 }
 
+init_ckan_cloud_docker_dev() {
+    ! client_side && return 1
+    ! local ACTIVE_DOCKER_MACHINE=`docker-machine active` && return 1
+    CKAN_CLOUD_DOCKER_DIR="${1}"
+    [ -z "${CKAN_CLOUD_DOCKER_DIR}" ] && error missing required args && return 1
+    ! [ -e "${CKAN_CLOUD_DOCKER_DIR}/jenkins/scripts/create_instance.sh" ] && error invalid ckan-cloud-docker directory && return 1
+    info Syncing ckan-cloud-docker local directory ${CKAN_CLOUD_DOCKER_DIR} to Docker Machine ${ACTIVE_DOCKER_MACHINE} &&\
+    docker-machine ssh ${ACTIVE_DOCKER_MACHINE} \
+        'bash -c "
+            sudo mkdir -p /etc/ckan-cloud/ckan-cloud-docker &&\
+            sudo chown -R 1000:1000 /etc/ckan-cloud
+        "' &&\
+    docker-machine scp -q -d -r ${CKAN_CLOUD_DOCKER_DIR}/ ${ACTIVE_DOCKER_MACHINE}:/etc/ckan-cloud/ckan-cloud-docker/ >/dev/null 2>&1
+    [ "$?" != "0" ] && error Failed to initialize dev version of ckan-cloud-docker && return 1
+    great_success && return 0
+}
+
+get_aws_public_hostname() {
+    ! server_side && return 1
+    ! curl -s http://169.254.169.254/latest/meta-data/public-hostname && return 1
+    echo
+}
+
+start_rancher() {
+    ! server_side && return 1
+    SERVER_NAME="${1}"
+    [ -z "${SERVER_NAME}" ] && error missing required args && return 1
+    docker rm -f rancher >/dev/null 2>&1
+    mkdir -p /var/lib/rancher &&\
+    docker run -d --name rancher --restart unless-stopped -p 8000:80 \
+               -v "/var/lib/rancher:/var/lib/rancher" rancher/rancher:stable
+    [ "$?" != "0" ] && error Failed to start Rancher && return 1
+    SITE_NAME=rancher
+    NGINX_CONFIG_SNIPPET=rancher
+    PROXY_PASS_PORT=8000
+    add_nginx_site_http2_proxy ${SERVER_NAME} ${SITE_NAME} ${NGINX_CONFIG_SNIPPET} ${PROXY_PASS_PORT}
+}
+
+start_jenkins() {
+    ! server_side && return 1
+    SERVER_NAME="${1}"
+    JENKINS_IMAGE="${2}"
+    ( [ -z "${SERVER_NAME}" ] || [ -z "${JENKINS_IMAGE}" ] ) && error missing required args && return 1
+    docker rm -f jenkins >/dev/null 2>&1
+    mkdir -p /var/jenkins_home &&\
+    chown -R 1000:1000 /var/jenkins_home &&\
+    docker run -d --name jenkins -p 8080:8080 \
+               -v /var/jenkins_home:/var/jenkins_home \
+               -v /etc/ckan-cloud:/etc/ckan-cloud \
+               -v /var/run/docker.sock:/var/run/docker.sock \
+               ${JENKINS_IMAGE}
+    [ "$?" != "0" ] && error Failed to start Jenkins && return 1
+    SITE_NAME=jenkins
+    NGINX_CONFIG_SNIPPET=jenkins
+    PROXY_PASS_PORT=8080
+    add_nginx_site_http2_proxy ${SERVER_NAME} ${SITE_NAME} ${NGINX_CONFIG_SNIPPET} ${PROXY_PASS_PORT}
+}
+
+init_ckan_cloud() {
+    ! server_side && return 1
+    CKAN_CLOUD_DOCKER_VERSION="${1}"
+    [ -z "${CKAN_CLOUD_DOCKER_VERSION}" ] && error missing required args && return 1
+    info Downloading ckan-cloud-docker v${CKAN_CLOUD_DOCKER_VERSION} &&\
+    mkdir -p /etc/ckan-cloud/ckan-cloud-docker &&\
+    chown -R 1000:1000 /etc/ckan-cloud &&\
+    wget -q https://github.com/ViderumGlobal/ckan-cloud-docker/archive/v${CKAN_CLOUD_DOCKER_VERSION}.tar.gz &&\
+    tar -xzf v${CKAN_CLOUD_DOCKER_VERSION}.tar.gz &&\
+    cp -rf ckan-cloud-docker-${CKAN_CLOUD_DOCKER_VERSION}/* /etc/ckan-cloud/ckan-cloud-docker &&\
+    rm -rf ckan-cloud-docker-${CKAN_CLOUD_DOCKER_VERSION} && rm v${CKAN_CLOUD_DOCKER_VERSION}.tar.gz
+    [ "$?" != "0" ] && error Failed download ckan-cloud-docker && return 1
+    info Copying the preconfigured Jenkins job configurations &&\
+    mkdir -p /var/jenkins_home/jobs &&\
+    cp -rf /etc/ckan-cloud/ckan-cloud-docker/jenkins/jobs/* /var/jenkins_home/jobs/ &&\
+    chown -R 1000:1000 /var/jenkins_home
+    [ "$?" != "0" ] && error Failed to copy the Jenkins job configurations && return 1
+    great_success && return 0
+}
+
+init_cca_operator() {
+    ! server_side && return 1
+    echo '#!/usr/bin/env bash
+    source /etc/ckan-cloud/.cca_operator-secrets.env
+    source /etc/ckan-cloud/.cca_operator-image.env
+    if [ "${QUIET}" == "1" ]; then
+        sudo docker run ${CCA_OPERATOR_DOCKER_RUN_ARGS:--i} --rm \
+            -v /etc/ckan-cloud:/etc/ckan-cloud \
+            -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
+            -e CF_AUTH_EMAIL=${CF_AUTH_EMAIL} -e CF_AUTH_KEY=${CF_AUTH_KEY} -e CF_ZONE_NAME=${CF_ZONE_NAME} \
+            ${CCA_OPERATOR_IMAGE} 2>/dev/null "$@"
+    else
+        sudo docker run ${CCA_OPERATOR_DOCKER_RUN_ARGS:--i} --rm \
+            -v /etc/ckan-cloud:/etc/ckan-cloud \
+            -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
+            -e CF_AUTH_EMAIL=${CF_AUTH_EMAIL} -e CF_AUTH_KEY=${CF_AUTH_KEY} -e CF_ZONE_NAME=${CF_ZONE_NAME} \
+            ${CCA_OPERATOR_IMAGE} "$@"
+    fi' > /etc/ckan-cloud/cca_operator.sh &&\
+    echo '#!/usr/bin/env bash
+    CCA_OPERATOR_DOCKER_RUN_ARGS="-it" /etc/ckan-cloud/cca_operator.sh --' > /etc/ckan-cloud/cca_operator_shell.sh &&\
+    chmod +x /etc/ckan-cloud/*.sh && chown -R 1000:1000 /etc/ckan-cloud
+    [ "$?" != "0" ] && error Failed to initialize cca-operator && return 1
+    great_success && return 0
+}
+
+install_helm() {
+    ! server_side && return 1
+    /etc/ckan-cloud/cca_operator.sh -c "
+        kubectl --namespace kube-system create serviceaccount tiller;
+        kubectl create clusterrolebinding tiller --clusterrole cluster-admin --serviceaccount=kube-system:tiller;
+        helm init --service-account tiller --history-max 2 --upgrade --wait &&\
+        helm version
+    "
+    [ "$?" != "0" ] && error Failed to install Helm && return 1
+    /etc/ckan-cloud/cca_operator.sh -c "
+        kubectl -n kube-system delete service tiller-deploy;
+        kubectl -n kube-system patch deployment tiller-deploy --patch 'spec:
+  template:
+    spec:
+      containers:
+        - name: tiller
+          ports: []
+          command: [\"/tiller\"]
+          args: [\"--listen=localhost:44134\"]'
+    "
+    [ "$?" != "0" ] && error Failed to limit Helm access && return 1
+    great_success && return 0
+}
+
+upgrade() {
+    ! client_side && return 1
+    CKAN_CLOUD_CLUSTER_VERSION="${1}"
+    CKAN_CLOUD_DOCKER_VERSION="${2}"
+    ( [ -z "${CKAN_CLOUD_CLUSTER_VERSION}" ] || [ -z "${CKAN_CLOUD_DOCKER_VERSION}" ] ) && error missing required args && return 1
+    info Upgrading ckan-cloud-cluster to v${CKAN_CLOUD_CLUSTER_VERSION} &&\
+    init $CKAN_CLOUD_CLUSTER_VERSION &&\
+    docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster init_ckan_cloud ${CKAN_CLOUD_DOCKER_VERSION}
+    [ "$?" != "0" ] && error Failed to upgrade CKAN Cloud && return 1
+    great_success && return 0
+}
+
 eval "$@"

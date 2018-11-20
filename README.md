@@ -94,7 +94,7 @@ Verify Docker Machine installation:
 docker version && docker run hello-world
 ```
 
-Initialize ckan-cloud-cluster v0.0.2
+Initialize ckan-cloud-cluster
 
 ```
 CKAN_CLOUD_CLUSTER_VERSION=0.0.2
@@ -103,7 +103,8 @@ curl -L https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-cluster/v${CK
     | bash -s init $CKAN_CLOUD_CLUSTER_VERSION
 ```
 
-If you want to install latest dev version of ckan-cloud-cluster - clone the code, and run the following from the ckan-cloud-cluster project directory: `./ckan-cloud-cluster.sh init_dev`
+If you want to install latest dev version of ckan-cloud-cluster -
+clone the code, and run the following from the ckan-cloud-cluster project directory: `./ckan-cloud-cluster.sh init_dev`
 
 ## Install Nginx and SSL
 
@@ -116,7 +117,7 @@ docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster install_ngin
 Get the server's hostname:
 
 ```
-docker-machine ssh $(docker-machine active) curl -s http://169.254.169.254/latest/meta-data/public-hostname; echo
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster get_aws_public_hostname
 ```
 
 Set DNS CNAME records for the following subdomains to this IP:
@@ -138,35 +139,12 @@ docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster setup_ssl ${
 
 ## Deploy Rancher
 
-Activate the machine
-
-```
-CKAN_CLOUD_NAMESPACE=my-cloud
-eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
-```
-
-Create the Rancher data directory
-
-```
-docker-machine ssh $(docker-machine active) sudo mkdir -p /var/lib/rancher
-```
-
 Start Rancher
 
 ```
-docker run -d --name rancher --restart unless-stopped -p 8000:80 \
-           -v "/var/lib/rancher:/var/lib/rancher" rancher/rancher:stable
-```
-
-Add Rancher to Nginx
-
-```
 SERVER_NAME=ckan-cloud-management.your-domain.com
-SITE_NAME=rancher
-NGINX_CONFIG_SNIPPET=rancher
-PROXY_PASS_PORT=8000
 
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster add_nginx_site_http2_proxy ${SERVER_NAME} ${SITE_NAME} ${NGINX_CONFIG_SNIPPET} ${PROXY_PASS_PORT}
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_rancher ${SERVER_NAME}
 ```
 
 Activate via the web-ui at https://ckan-cloud-management.your-domain.com/
@@ -186,32 +164,36 @@ Assign the EFS mount targets to the same security group as the worker nodes
 
 From the Rancher web-ui:
 
-* Switch to the Global project > catalogs > add catalog:
-  * Name: `ckan-cloud-stable`
-  * Catalog URL: `https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-helm/master/charts_repository`
-* Switch to the ckan-cloud `Default` project > Catalog Apps:
-  * Launch `efs` from the `ckan-cloud-stable` catalog
-    * Change namespace to use the existing `default` namespace
-    * Set the following values:
-      * `efsFileSystemID`: Id of Amazon EFS filesystem
-      * `efsFileSystemRegion`: The region of the EFS filesystem
-* Switch to `Cluster: ckan-cloud` > Storage > Storage classes:
-  * Create a storage class called `cca-storage` using Amazon EBS Disk provisioner
-* Switch to `Cluster: ckan-cloud` > Launch kubectl:
-  * `kubectl create -n default service loadbalancer traefik --tcp=80:80 --tcp=443:443`
-* In AWS console: set a security group for the load balancer, alowing access to ports 80, 443 from anywhere
-* get the load balancer hostname:
-  * rancher > ckan-cloud > launch kubectl: `kubectl -n default get service traefik -o yaml`
-  * create CNAME from your custom domain to the load balancer hostname
+Install the Helm charts repo - switch to the Global project > catalogs > add catalog:
+* Name: `ckan-cloud-stable`
+* Catalog URL: `https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-helm/master/charts_repository`
+
+Deploy the efs-provisioner - switch to the ckan-cloud `Default` project > Catalog Apps:
+* Launch `efs` from the `ckan-cloud-stable` catalog
+* Change namespace to use the existing `default` namespace
+* Set the following values:
+  * `efsFileSystemID`: Id of Amazon EFS filesystem
+  * `efsFileSystemRegion`: The region of the EFS filesystem
+
+Create the Amazon EBS Disk provisioner - switch to `Cluster: ckan-cloud` > Storage > Storage classes:
+* Create a storage class called `cca-storage` using Amazon EBS Disk provisioner
 
 ## Deploy the load balancer
 
-* In Rancher - Switch to the ckan-cloud `Default` project:
-  * Resources > Configmaps > Add Config Map
-    * Name: `etc-traefik`
-    * Namespace: default
-    * Config map value:
-      * `traefik.toml` = paste the following config (modify the domain)
+Create the load balancer -
+* In Rahcner - switch to `Cluster: ckan-cloud` > Launch kubectl:
+  * `kubectl create -n default service loadbalancer traefik --tcp=80:80 --tcp=443:443`
+* In AWS console - set a security group for the load balancer, alowing access to ports 80, 443 from anywhere
+* get the load balancer hostname:
+  * rancher > ckan-cloud > launch kubectl: `kubectl -n default get service traefik -o yaml`
+* create CNAME from `test1.your-domain.com` to the load balancer hostname
+
+Deploy Traefik - switch to the ckan-cloud `Default` project:
+* Resources > Configmaps > Add Config Map
+  * Name: `etc-traefik`
+  * Namespace: default
+* Config map value:
+  * `traefik.toml` = paste the following config (modify the domain)
 
 ```
 debug = false
@@ -281,40 +263,13 @@ For the changes to take effet, you need to manually restart the loadbalancer:
 
 ## Deploy Jenkins
 
-Activate the machine
-
-```
-CKAN_CLOUD_NAMESPACE=my-cloud
-eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
-```
-
-Create the jenkins home directory
-
-```
-docker-machine ssh $(docker-machine active) 'sudo bash -c "
-    mkdir -p /var/jenkins_home && chown -R 1000:1000 /var/jenkins_home
-"'
-```
-
-Run Jenkins
-
-```
-docker run -d --name jenkins -p 8080:8080 \
-           -v /var/jenkins_home:/var/jenkins_home \
-           -v /etc/ckan-cloud:/etc/ckan-cloud \
-           -v /var/run/docker.sock:/var/run/docker.sock \
-           viderum/ckan-cloud-docker:jenkins-v0.0.2
-```
-
-Add Jenkins to Nginx
+Start Jenkins
 
 ```
 SERVER_NAME=ckan-cloud-jenkins.your-domain.com
-SITE_NAME=jenkins
-NGINX_CONFIG_SNIPPET=jenkins
-PROXY_PASS_PORT=8080
+JENKINS_IMAGE=viderum/ckan-cloud-docker:jenkins-v0.0.2
 
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster add_nginx_site_http2_proxy ${SERVER_NAME} ${SITE_NAME} ${NGINX_CONFIG_SNIPPET} ${PROXY_PASS_PORT}
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_jenkins ${SERVER_NAME} ${JENKINS_IMAGE}
 ```
 
 Get the admin password
@@ -325,42 +280,23 @@ docker-machine ssh $(docker-machine active) sudo cat /var/jenkins_home/secrets/i
 
 Activate via the web-ui at https://ckan-cloud-jenkins.your-domain.com
 
-Install suggested plugins
-
 ## Initialize CKAN Cloud
 
-Activate the machine
-
-```
-CKAN_CLOUD_NAMESPACE=my-cloud
-eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
-```
-
-Download the relevant version of ckan-cloud-docker
+Initialize:
 
 ```
 CKAN_CLOUD_DOCKER_VERSION=0.0.2
 
-docker-machine ssh $(docker-machine active) 'bash -c "
-    sudo mkdir -p /etc/ckan-cloud/ckan-cloud-docker &&\
-    sudo chown -R 1000:1000 /etc/ckan-cloud &&\
-    wget -q https://github.com/ViderumGlobal/ckan-cloud-docker/archive/v'${CKAN_CLOUD_DOCKER_VERSION}'.tar.gz &&\
-    tar -xzf v'${CKAN_CLOUD_DOCKER_VERSION}'.tar.gz &&\
-    cp -rf ckan-cloud-docker-'${CKAN_CLOUD_DOCKER_VERSION}'/* /etc/ckan-cloud/ckan-cloud-docker &&\
-    rm -rf ckan-cloud-docker-'${CKAN_CLOUD_DOCKER_VERSION}' && rm v'${CKAN_CLOUD_DOCKER_VERSION}'.tar.gz
-"' && echo Great Success!
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster init_ckan_cloud ${CKAN_CLOUD_DOCKER_VERSION}
 ```
 
-Copy the preconfigured Jenkins job configurations
+To sync local copy of ckan-cloud-docker to the server:
 
 ```
-docker-machine ssh $(docker-machine active) 'bash -c "
-    sudo mkdir -p /var/jenkins_home/jobs && sudo chown -R 1000:1000 /var/jenkins_home &&\
-    cp -rf /etc/ckan-cloud/ckan-cloud-docker/jenkins/jobs/* /var/jenkins_home/jobs/
-"' && echo Great Success!
+./ckan-cloud-cluster.sh init_ckan_cloud_docker_dev `pwd`/../ckan-cloud-docker
 ```
 
-Generate an API key in Rancher > top right profile image > API & Keys
+Log-in to Rancher > top right profile image > API & Keys > generate an API key
 
 Create a kubeconfig for cca-operator using the Rancher API key values:
 
@@ -389,63 +325,26 @@ contexts:
 current-context: "'${CLUSTER_NAME}'"' | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.kube-config"'
 ```
 
-Configure cca-operator
+Initialize cca-operator
 
 ```
-# cloudflare settings to register sub-domains
-CF_AUTH_EMAIL=""
-CF_AUTH_KEY=""
-CF_ZONE_NAME=""
+# set cloudflare settings to register sub-domains
+echo 'export CF_AUTH_EMAIL=""
+export CF_AUTH_KEY=""
+export CF_ZONE_NAME=""' \
+    | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.cca_operator-secrets.env"'
 
-CCA_OPERATOR_IMAGE="viderum/ckan-cloud-docker:cca-operator-v0.0.2"
+# set the Docker image to use for cca-operator
+echo 'export CCA_OPERATOR_IMAGE="viderum/ckan-cloud-docker:cca-operator-v0.0.2"' \
+    | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.cca_operator-image.env"'
 
-echo '#!/usr/bin/env bash
-if [ "${QUIET}" == "1" ]; then
-    sudo docker run ${CCA_OPERATOR_DOCKER_RUN_ARGS:--i} --rm \
-        -v /etc/ckan-cloud:/etc/ckan-cloud \
-        -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
-        -e CF_AUTH_EMAIL='${CF_AUTH_EMAIL}' -e CF_AUTH_KEY='${CF_AUTH_KEY}' -e CF_ZONE_NAME='${CF_ZONE_NAME}' \
-        '${CCA_OPERATOR_IMAGE}' \
-        2>/dev/null "$@"
-else
-    sudo docker run ${CCA_OPERATOR_DOCKER_RUN_ARGS:--i} --rm \
-        -v /etc/ckan-cloud:/etc/ckan-cloud \
-        -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
-        -e CF_AUTH_EMAIL='${CF_AUTH_EMAIL}' -e CF_AUTH_KEY='${CF_AUTH_KEY}' -e CF_ZONE_NAME='${CF_ZONE_NAME}' \
-        '${CCA_OPERATOR_IMAGE}' \
-        "$@"
-fi' | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/cca_operator.sh"' &&\
-echo '#!/usr/bin/env bash
-CCA_OPERATOR_DOCKER_RUN_ARGS="-it" /etc/ckan-cloud/cca_operator.sh --' \
-    | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/cca_operator_shell.sh"' &&\
-docker-machine ssh $(docker-machine active) chmod +x /etc/ckan-cloud/*.sh && echo Great Success!
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster init_cca_operator
 ```
 
 Install Helm:
 
 ```
-docker-machine ssh $(docker-machine active) '/etc/ckan-cloud/cca_operator.sh -c "
-    kubectl --namespace kube-system create serviceaccount tiller &&\
-    kubectl create clusterrolebinding tiller --clusterrole cluster-admin --serviceaccount=kube-system:tiller &&\
-    helm init --service-account tiller --history-max 2 --upgrade --wait &&\
-    kubectl -n kube-system delete service tiller-deploy &&\
-    helm version
-"' && echo Great Success
-```
-
-Recommended - limit Helm access to CLI only, run the following in Rancher kubectl shell
-
-```
-kubectl -n kube-system delete service tiller-deploy &&\
-kubectl -n kube-system patch deployment tiller-deploy --patch '
-spec:
-  template:
-    spec:
-      containers:
-        - name: tiller
-          ports: []
-          command: ["/tiller"]
-          args: ["--listen=localhost:44134"]'
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster install_helm
 ```
 
 Reload the Jenkins jobs - Jenkins web-ui > manage jenkins > reload configurations from disk
@@ -453,13 +352,6 @@ Reload the Jenkins jobs - Jenkins web-ui > manage jenkins > reload configuration
 Manage CKAN instances using the cluster administration Jenkins jobs
 
 ## Using cca-operator CLI
-
-Activate the machine
-
-```
-CKAN_CLOUD_NAMESPACE=my-cloud
-eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
-```
 
 Run a cca-operator command:
 
@@ -475,3 +367,46 @@ $ ./list-instances.sh
 $ kubectl get nodes
 ```
 
+To use a development version of cca-operator - build cca-operator while connected to the Docker Machine:
+
+```
+# change to the ckan-cloud-docker project directory
+cd ../ckan-cloud-docker
+
+# Ensure you are connected to the Docker Machine
+CKAN_CLOUD_NAMESPACE=my-cloud
+eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
+
+# build
+docker-compose build cca-operator
+```
+
+Set cca-operator to use the latest image (which is the default image built by the docker-compose):
+
+```
+echo 'export CCA_OPERATOR_IMAGE="viderum/ckan-cloud-docker:cca-operator-latest"' \
+    | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.cca_operator-image.env"'
+```
+
+You can now run cca-operator commands / shell and it will use the latest locally built copy
+
+## Upgrade
+
+Activate the docker-machine
+
+```
+CKAN_CLOUD_NAMESPACE=my-cloud
+mkdir -p /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}
+```
+
+Upgrade to the required version from [ckan-cloud-docker](https://github.com/ViderumGlobal/ckan-cloud-docker/releases) and [ckan-cloud-cluster](https://github.com/ViderumGlobal/ckan-cloud-cluster/releases)
+
+(Specified version should be without the v prefix - just the version number)
+
+```
+CKAN_CLOUD_CLUSTER_VERSION="0.0.2"
+CKAN_CLOUD_DOCKER_VERSION="0.0.3"
+
+curl -L https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-cluster/v${CKAN_CLOUD_CLUSTER_VERSION}/ckan-cloud-cluster.sh \
+    | bash -s upgrade $CKAN_CLOUD_CLUSTER_VERSION $CKAN_CLOUD_DOCKER_VERSION
+```
