@@ -83,19 +83,17 @@ storageClass.name=cca-ckan
 Create the load balancer -
 * In Rahcner - switch to `Cluster: ckan-cloud` > Launch kubectl:
   * `kubectl create -n default service loadbalancer traefik --tcp=80:80 --tcp=443:443`
-* Enable access from anywhere to ports 80, 443
-  * In AWS console - set a security group for the load balancer
-  *
-* get the load balancer hostname:
+* For AWS - set a security group for the load balancer, enabling ports 80 and 443
+* get the load balancer hostname / IP:
   * rancher > ckan-cloud > launch kubectl: `kubectl -n default get service traefik -o yaml`
-* create CNAME from `test1.your-domain.com` to the load balancer hostname
+* Set a DNS record from `test1.your-domain.com` to the load balancer hostname / IP
 
 Deploy Traefik - switch to the ckan-cloud `Default` project:
 * Resources > Configmaps > Add Config Map
   * Name: `etc-traefik`
   * Namespace: default
 * Config map value:
-  * `traefik.toml` = paste the following config (modify the domain)
+  * `traefik.toml` = paste the following config and modify the values
 
 ```
 debug = false
@@ -144,7 +142,8 @@ defaultEntryPoints = ["http", "https"]
 ```
 
 * In Rancher - Switch to the ckan-cloud `Default` project:
-  * Catalog Apps > Launch `traefik` from the `ckan-cloud-stable` catalog
+  * Catalog Apps > Launch `traefik` from the `ckan-cloud` catalog
+  * Namespace: `default`
   * Paste the following values (modify accordingly and create secrets as instructed)
 
 ```
@@ -153,11 +152,10 @@ AWS_ACCESS_KEY_ID=
 AWS_REGION=
 awsSecretName=secret_with_AWS_SECRET_ACCESS_KEY_value
 CLOUDFLARE_EMAIL=
-CLOUDFLARE_API_KEY=
 cfSecretName=secret_with_CLOUDFLARE_API_KEY_value
 ```
 
-You can edit the etc-traefik configmap to make change to the load balancer
+You can edit the etc-traefik configmap to make changes to the load balancer
 
 For the changes to take effet, you need to manually restart the loadbalancer:
 

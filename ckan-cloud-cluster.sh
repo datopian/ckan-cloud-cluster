@@ -294,6 +294,7 @@ start_cca_operator_server() {
                -v /etc/ckan-cloud:/etc/ckan-cloud \
                -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
                -e CF_AUTH_EMAIL=${CF_AUTH_EMAIL} -e CF_AUTH_KEY=${CF_AUTH_KEY} -e CF_ZONE_NAME=${CF_ZONE_NAME} \
+               -e "CF_ZONE_UPDATE_DATA_TEMPLATE=${CF_ZONE_UPDATE_DATA_TEMPLATE}" -e "CF_RECORD_NAME_SUFFIX=${CF_RECORD_NAME_SUFFIX}" \
                ${CCA_OPERATOR_IMAGE} ./server.sh
     [ "$?" != "0" ] && error Failed to start cca-operator server && return 1
     great_success && return 0
@@ -329,12 +330,14 @@ init_cca_operator() {
             -v /etc/ckan-cloud:/etc/ckan-cloud \
             -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
             -e CF_AUTH_EMAIL=${CF_AUTH_EMAIL} -e CF_AUTH_KEY=${CF_AUTH_KEY} -e CF_ZONE_NAME=${CF_ZONE_NAME} \
+            -e "CF_ZONE_UPDATE_DATA_TEMPLATE=${CF_ZONE_UPDATE_DATA_TEMPLATE}" -e "CF_RECORD_NAME_SUFFIX=${CF_RECORD_NAME_SUFFIX}" \
             ${CCA_OPERATOR_IMAGE} 2>/dev/null "$@"
     else
         sudo docker run ${CCA_OPERATOR_DOCKER_RUN_ARGS:--i} --rm \
             -v /etc/ckan-cloud:/etc/ckan-cloud \
             -e KUBECONFIG=/etc/ckan-cloud/.kube-config \
             -e CF_AUTH_EMAIL=${CF_AUTH_EMAIL} -e CF_AUTH_KEY=${CF_AUTH_KEY} -e CF_ZONE_NAME=${CF_ZONE_NAME} \
+            -e "CF_ZONE_UPDATE_DATA_TEMPLATE=${CF_ZONE_UPDATE_DATA_TEMPLATE}" -e "CF_RECORD_NAME_SUFFIX=${CF_RECORD_NAME_SUFFIX}" \
             ${CCA_OPERATOR_IMAGE} "$@"
     fi' > /etc/ckan-cloud/cca_operator.sh &&\
     echo '#!/usr/bin/env bash
