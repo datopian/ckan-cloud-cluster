@@ -56,3 +56,4 @@ Follow these guides in this order to provision all the components:
 * [Create a Kubernetes cluster](docs/CLUSTER.md)
 * [Install cca-operator](docs/CCA_OPERATOR.md)
 * [Install the provisioning app](docs/PROVISIONING.md)
+* [Continuous Integration / Deployment](docs/CI_CD.md)

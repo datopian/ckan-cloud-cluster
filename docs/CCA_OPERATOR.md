@@ -157,3 +157,57 @@ Or cca-operator commands:
 ```
 ./list-instances.sh
 ```
+
+## Create a limited-access cca-operator ssh user
+
+See [here](https://github.com/ViderumGlobal/ckan-cloud-docker/blob/master/cca-operator/cca-operator.py) for the possible roles.
+
+Generate an SSH key for the role and add to authorized keys for that role
+
+```
+CCA_OPERATOR_ROLE=continuous-deployment
+KEY_COMMENT=continuous-deployment-role
+KEY_FILE=/etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.${KEY_COMMENT}-id_rsa
+MANAGEMENT_SERVER=root@ckan-cloud-management.your-domain.com
+
+ssh-keygen -t rsa -b 4096 -C "${KEY_COMMENT}" -N "" -f "${KEY_FILE}" &&\
+cat "${KEY_FILE}.pub" | ssh -p 8022 "${MANAGEMENT_SERVER}" \
+    ./cca-operator.sh ./add-server-authorized-key.sh "${CCA_OPERATOR_ROLE}"
+```
+
+Restart cca-operator server
+
+```
+docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_cca_operator_server
+```
+
+Try to run a cca-operator command
+
+```
+ssh -p 8022 -o IdentitiesOnly=yes -i "${KEY_FILE}" "${MANAGEMENT_SERVER}" ./list-instances.sh
+```
+
+The limited access user can only run specific commands, see [here](https://github.com/ViderumGlobal/ckan-cloud-docker/blob/master/cca-operator/cca-operator.py) for details.
+
+If your role is not permitted you will get an error message.
+
+For example, the following command patches the provisioning api deployment for the `continuous-deployment` role
+
+```
+NAMESPACE=provisioning
+DEPLOYMENT=api
+CONTAINER=api
+VALUES_FILE=/etc/ckan-cloud/.provisioning-values.yaml
+BACKUP_DIR=/etc/ckan-cloud/backups/provisioning/values/
+IMAGE_ATTRIB=apiImage
+IMAGE=viderum/ckan-cloud-provisioning-api:latest
+
+ssh -p 8022 root@ckan-cloud-management.your-domain.com patch-deployment \
+    "${NAMESPACE}" \
+    "${DEPLOYMENT}" \
+    "${CONTAINER}" \
+    "${VALUES_FILE}" \
+    "${BACKUP_DIR}" \
+    "${IMAGE_ATTRIB}" \
+    "${IMAGE}"
+```
