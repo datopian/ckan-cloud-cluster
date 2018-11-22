@@ -14,7 +14,7 @@ eval $(docker-machine env ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management)
 Initialize CKAN Cloud on the management server, choose a published release from [here](https://github.com/ViderumGlobal/ckan-cloud-docker/releases)
 
 ```
-CKAN_CLOUD_DOCKER_VERSION=0.0.3
+CKAN_CLOUD_DOCKER_VERSION=0.0.4
 
 docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster init_ckan_cloud ${CKAN_CLOUD_DOCKER_VERSION}
 ```
@@ -70,7 +70,7 @@ cat /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cca_operator-secrets.env \
 Set the cca-operator version of a published release from [here](https://github.com/ViderumGlobal/ckan-cloud-docker/releases)
 
 ```
-CCA_OPERATOR_VERSION=v0.0.2
+CCA_OPERATOR_VERSION=v0.0.4
 # CCA_OPERATOR_VERSION=latest
 
 echo 'export CCA_OPERATOR_IMAGE="viderum/ckan-cloud-docker:cca-operator-'${CCA_OPERATOR_VERSION}'"' \
@@ -120,8 +120,8 @@ Upgrade to the required version from [ckan-cloud-docker](https://github.com/Vide
 (Specified version should be without the v prefix - just the version number)
 
 ```
-CKAN_CLOUD_CLUSTER_VERSION="0.0.2"
-CKAN_CLOUD_DOCKER_VERSION="0.0.3"
+CKAN_CLOUD_CLUSTER_VERSION="0.0.4"
+CKAN_CLOUD_DOCKER_VERSION="0.0.4"
 
 curl -L https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-cluster/v${CKAN_CLOUD_CLUSTER_VERSION}/ckan-cloud-cluster.sh \
     | bash -s upgrade $CKAN_CLOUD_CLUSTER_VERSION $CKAN_CLOUD_DOCKER_VERSION

@@ -141,7 +141,7 @@ All the following commands should run on the relevant active Docker Machine
 Initialize ckan-cloud-cluster, choose a published release from [here](https://github.com/ViderumGlobal/ckan-cloud-cluster/releases)
 
 ```
-CKAN_CLOUD_CLUSTER_VERSION=0.0.2
+CKAN_CLOUD_CLUSTER_VERSION=0.0.4
 
 curl -L https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-cluster/v${CKAN_CLOUD_CLUSTER_VERSION}/ckan-cloud-cluster.sh \
     | bash -s init $CKAN_CLOUD_CLUSTER_VERSION
@@ -201,7 +201,7 @@ Start Jenkins from a published release of [ckan-cloud-docker Jenkins](https://gi
 
 ```
 JENKINS_SERVER_NAME=ckan-cloud-jenkins.${CKAN_CLOUD_ROOT_DOMAIN}
-JENKINS_IMAGE=viderum/ckan-cloud-docker:jenkins-v0.0.2
+JENKINS_IMAGE=viderum/ckan-cloud-docker:jenkins-v0.0.4
 
 docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_jenkins ${JENKINS_SERVER_NAME} ${JENKINS_IMAGE}
 ```
