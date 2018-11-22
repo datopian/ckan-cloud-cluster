@@ -29,6 +29,7 @@ install_nginx_ssl() {
     info Installing Nginx and Certbot with strong SSL security &&\
     apt update -y &&\
     apt install -y nginx software-properties-common &&\
+    add-apt-repository universe &&\
     add-apt-repository ppa:certbot/certbot &&\
     apt-get update &&\
     apt-get install -y python-certbot-nginx &&\
@@ -63,18 +64,23 @@ add_header Strict-Transport-Security "max-age=15768000; includeSubdomains; prelo
 add_header X-Frame-Options SAMEORIGIN;
 add_header X-Content-Type-Options nosniff;' | tee /etc/nginx/snippets/ssl.conf &&\
     info Saving /etc/nginx/snippets/http2_proxy.conf &&\
-    echo 'proxy_set_header X-Forwarded-For $remote_addr;
-proxy_set_header Host $http_host;
+    echo 'proxy_set_header Host $host;
 proxy_set_header X-Forwarded-Proto $scheme;
 proxy_set_header X-Forwarded-Port $server_port;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_http_version 1.1;
 proxy_set_header Upgrade $http_upgrade;
-proxy_set_header Connection "Upgrade";
+proxy_set_header Connection $connection_upgrade;
 proxy_read_timeout 900s;' | tee /etc/nginx/snippets/http2_proxy.conf &&\
 info Clearing existing Nginx sites from /etc/nginx/sites-enabled &&\
 rm -f /etc/nginx/sites-enabled/* &&\
 info Saving /etc/nginx/sites-enabled/default &&\
-echo 'server {
+echo '
+map $http_upgrade $connection_upgrade {
+    default Upgrade;
+    '"''"'      close;
+}
+server {
   listen 80;
   server_name _;
   include snippets/letsencrypt.conf;
@@ -146,8 +152,7 @@ add_nginx_site() {
   return 301 https://$host$request_uri;
 }
 server {
-  listen 443 ssl http2;
-  listen [::]:443 ssl http2;
+  listen 443 ssl spdy;
   server_name '${SERVER_NAME}';
   include snippets/letsencrypt_certs.conf;
   include snippets/ssl.conf;
