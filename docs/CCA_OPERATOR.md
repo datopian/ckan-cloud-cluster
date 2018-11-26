@@ -46,9 +46,10 @@ cat /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.kube-config \
     | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.kube-config"'
 ```
 
-To register sub-domains, create a cloudflare configuration file at `/etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cca_operator-secrets.env`
+Save the domain cca-operator secrets in the management server
 
 ```
+echo '
 # using hostname - for AWS
 # export CF_ZONE_UPDATE_DATA_TEMPLATE='{"type":"CNAME","name":"{{CF_SUBDOMAIN}}","content":"{{CF_HOSTNAME}}","ttl":120,"proxied":false}'
 # using IP - for GKE
@@ -58,13 +59,7 @@ export CF_AUTH_EMAIL=""
 export CF_AUTH_KEY=""
 export CF_ZONE_NAME="your-domain.com"
 export CF_RECORD_NAME_SUFFIX=".your-domain.com"
-```
-
-Copy the configuration to the management server
-
-```
-cat /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cca_operator-secrets.env \
-    | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.cca_operator-secrets.env"'
+' | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.cca_operator-secrets.env"'
 ```
 
 Set the cca-operator version of a published release from [here](https://github.com/ViderumGlobal/ckan-cloud-docker/releases)
