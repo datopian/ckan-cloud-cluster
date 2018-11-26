@@ -51,9 +51,9 @@ Save the domain cca-operator secrets in the management server
 ```
 echo '
 # using hostname - for AWS
-# export CF_ZONE_UPDATE_DATA_TEMPLATE='{"type":"CNAME","name":"{{CF_SUBDOMAIN}}","content":"{{CF_HOSTNAME}}","ttl":120,"proxied":false}'
+# export CF_ZONE_UPDATE_DATA_TEMPLATE="{\"type\":\"CNAME\",\"name\":\"{{CF_SUBDOMAIN}}\",\"content\":\"{{CF_HOSTNAME}}\",\"ttl\":120,\"proxied\":false}"
 # using IP - for GKE
-export CF_ZONE_UPDATE_DATA_TEMPLATE='{"type":"A","name":"{{CF_SUBDOMAIN}}","content":"{{CF_HOSTNAME}}","ttl":120,"proxied":false}'
+export CF_ZONE_UPDATE_DATA_TEMPLATE="{\"type\":\"A\",\"name\":\"{{CF_SUBDOMAIN}}\",\"content":\"{{CF_HOSTNAME}}\",\"ttl\":120,\"proxied\":false}"
 
 export CF_AUTH_EMAIL=""
 export CF_AUTH_KEY=""

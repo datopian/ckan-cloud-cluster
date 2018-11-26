@@ -32,7 +32,7 @@ PROVISIONING_NAMESPACE=provisioning
 kubectl create ns $PROVISIONING_NAMESPACE
 ```
 
-Add to the load balancer
+Add the api to the load balancer
 
 ```
 DOMAIN="${REGISTER_SUBDOMAIN}.your-domain.com"
@@ -135,4 +135,41 @@ Get the provisioning secrets
 PROVISIONING_SECRETS=`get_secrets_json "-n provisioning api-env"`
 for KEY in INSTANCE_MANAGER PRIVATE_SSH_KEY PRIVATE_KEY PUBLIC_KEY GITHUB_KEY GITHUB_SECRET
 do echo "###### ${KEY} ######"; echo; get_secret_from_json "${PROVISIONING_SECRETS}" $KEY; echo; echo; done
+```
+
+
+Register a subdomain for the provisioning ui
+
+```
+# a subdomain under the main cluster domain
+REGISTER_SUBDOMAIN=cloud-provisioning-ui
+
+source functions.sh &&\
+LOAD_BALANCER_HOSTNAME=$(kubectl -n default get service traefik -o yaml \
+    | python3 -c 'import sys, yaml
+ingress = yaml.load(sys.stdin)["status"]["loadBalancer"]["ingress"][0]
+print(ingress.get("hostname", ingress.get("ip")))' 2>/dev/null) &&\
+cluster_register_sub_domain "${REGISTER_SUBDOMAIN}" "${LOAD_BALANCER_HOSTNAME}"
+```
+
+Create the provisioning namespace
+
+```
+PROVISIONING_NAMESPACE=provisioning
+
+kubectl create ns $PROVISIONING_NAMESPACE
+```
+
+Add the api to the load balancer
+
+```
+DOMAIN="cloud-provisioning-ui.your-domain.com"
+WITH_SANS_SSL="1"
+INSTANCE_ID="cloud-provisioning-ui"
+SERVICE_NAME=ui
+SERVICE_PORT=8000
+SERVICE_NAMESPACE=provisioning
+
+source functions.sh &&\
+add_domain_to_traefik "${DOMAIN}" "${WITH_SANS_SSL}" "${INSTANCE_ID}" "${SERVICE_NAME}" "${SERVICE_PORT}" "${SERVICE_NAMESPACE}"
 ```
