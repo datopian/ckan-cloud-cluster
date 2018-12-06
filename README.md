@@ -27,6 +27,8 @@ Documentation and code for provisioning and running CKAN Cloud clusters.
       * Main HTTPS entrypoint to the CKAN instances
       * A subdomain is registered for each CKAN instance and configured for SSL with Let's Encrypt
       * cca-operator adds routing for each instance to the Traefik configuration but additional routes can be added manually
+    * **Solr Cloud** - Search Engine
+    * **Postgresql** - Main DB
 
 ## Prerequisites
 

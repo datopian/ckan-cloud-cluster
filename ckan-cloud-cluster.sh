@@ -239,6 +239,7 @@ init_ckan_cloud_docker_dev() {
             sudo chown -R 1000:1000 /etc/ckan-cloud
         "' &&\
     docker-machine scp -q -d -r ${CKAN_CLOUD_DOCKER_DIR}/ ${ACTIVE_DOCKER_MACHINE}:/etc/ckan-cloud/ckan-cloud-docker/ >/dev/null 2>&1
+
     [ "$?" != "0" ] && error Failed to initialize dev version of ckan-cloud-docker && return 1
     great_success && return 0
 }

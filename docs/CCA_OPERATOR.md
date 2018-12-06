@@ -62,7 +62,7 @@ export CF_RECORD_NAME_SUFFIX=".your-domain.com"
 ' | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.cca_operator-secrets.env"'
 ```
 
-Set the cca-operator version of a published release from [here](https://github.com/ViderumGlobal/ckan-cloud-docker/releases)
+Deploy a cca-operator version of a published release from [here](https://github.com/ViderumGlobal/ckan-cloud-docker/releases)
 
 ```
 CCA_OPERATOR_VERSION=v0.0.4
