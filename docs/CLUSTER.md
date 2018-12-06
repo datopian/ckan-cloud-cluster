@@ -160,3 +160,46 @@ You can edit the etc-traefik configmap to make changes to the load balancer
 For the changes to take effet, you need to manually restart the loadbalancer:
 
 * Rancher > ckan-cloud > default > workloads > traefik > redeploy
+
+## Deploy Solr Cloud
+
+* Rancher - Switch to the ckan-cloud `Default` project:
+  * Catalog Apps > Launch `ckan` from the `ckan-cloud` catalog
+  * Name: `solr`
+  * Namespace: `ckan-cloud`
+  * set values:
+
+```
+centralizedInfraOnly=true
+dbDisabled=true
+usePersistentVolumes=true
+storageClassName: cca-storage
+solrPersistentDiskSizeGB: 20
+```
+
+Start port-forward
+
+```
+kubectl -n ckan-cloud port-forward deployment/solr 8983
+```
+
+Access solr cloud at http://localhost:8983
+
+If solrcloud is restarted - all collections has to be reloaded via the solr cloud UI or the collections api
+
+**TODO:** auto-reload of collections on solr cloud restart
+
+## Connect to external DB
+
+Create the DB - Postgresql 9.6
+
+* Rancher - Switch to the default namespace:
+  * resources > secrets > add secret
+  * Name: `ckan-infra`
+  * available to a single namespace: `ckan-cloud`
+  * values:
+```
+POSTGRES_HOST=
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+```

@@ -141,7 +141,7 @@ All the following commands should run on the relevant active Docker Machine
 Initialize ckan-cloud-cluster, choose a published release from [here](https://github.com/ViderumGlobal/ckan-cloud-cluster/releases)
 
 ```
-CKAN_CLOUD_CLUSTER_VERSION=0.0.4
+CKAN_CLOUD_CLUSTER_VERSION=0.0.6
 
 curl -L https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-cluster/v${CKAN_CLOUD_CLUSTER_VERSION}/ckan-cloud-cluster.sh \
     | bash -s init $CKAN_CLOUD_CLUSTER_VERSION
