@@ -78,6 +78,21 @@ persistence.enabled=true
 storageClass.name=cca-ckan
 ```
 
+#### Create multi-user storage using Google Cloud Filestore
+
+Create a filestore instance
+
+* same region/zone as the cluster
+* Set fileshare properties > fileshare name: `ckancloud`
+
+Use Rancher to deploy the Helm stable `nfs-client-provisioner` chart to the `default` namespace with the following values:
+
+```
+storageClass.name = cca-ckan
+nfs.server = 1.2.3.4
+nfs.path = /ckancloud
+```
+
 ## Deploy the load balancer to the cluster
 
 Create the load balancer -
@@ -91,7 +106,7 @@ Create the load balancer -
 Deploy Traefik - switch to the ckan-cloud `Default` project:
 * Resources > Configmaps > Add Config Map
   * Name: `etc-traefik`
-  * Namespace: default
+  * Namespace: `default`
 * Config map value:
   * `traefik.toml` = paste the following config and modify the values
 
