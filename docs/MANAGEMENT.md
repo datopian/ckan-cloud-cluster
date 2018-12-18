@@ -93,26 +93,71 @@ source /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-docker-machine.
 docker-machine create ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management
 ```
 
-If you used the recommended instance type of m5d.large run the following steps as well:
+#### Create a server using Google Compute Engine
 
-* SSH into the server: `docker-machine ssh ckan-cloud-management`
-* Check the name of the unmounted SSD filesystem (something like /dev/nvme1n1): `sudo fdisk -l`
+Create a Google Compute instance:
+
+* Machine type: n1-standard-2 (2 CPU, 7.5GB ram)
+* Boot Disk: ubuntu 18.04 LTS - 50GB standard disk
+* Compute engine default service account with default access
+* Add `ckan-cloud-management-server` network tag
+* Advanced > Disks: add additional disk - 200GB SSD
+* Advanced > Networking: set a persistent external IP
+
+Edit VPC firewall rules and enable the following ports for `ckan-cloud-management-server` network tag: 22, 80, 443, 2376, 8022
+
+Add the public key to authorized_keys:
+
+```
+GOOGLE_PROJECT_ID=
+GOOGLE_INSTANCE_ID=
+
+cat /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-id_rsa.pub | gcloud --project=$GOOGLE_PROJECT_ID compute ssh $GOOGLE_INSTANCE_ID -- bash -c "cat | sudo -u ubuntu tee -a /home/ubuntu/.ssh/authorized_keys"
+```
+
+Create the Docker Machine configuration (set the instance's public hostname/IP in GENERIC_IP_ADDRESS)
+
+```
+echo "
+export GENERIC_IP_ADDRESS=
+export MACHINE_DRIVER=generic
+export GENERIC_SSH_KEY=/etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-id_rsa
+export GENERIC_SSH_USER=ubuntu
+" > /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-docker-machine.env
+```
+
+Create the Docker Machine
+
+```
+source /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-docker-machine.env
+docker-machine create ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management
+```
+
+## Initialize the additional SSD disk
+
+(Optional) If you added an additional SSD disk, configure Docker to use it - 
+
+* SSH into the server: `docker-machine ssh ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management`
+* Check the name of the additional SSD disk: `sudo fdisk -l`
 * Create ext4 filesystem: `sudo mkfs.ext4 /dev/nvme1n1`
 * Mount: `sudo mkdir /mnt/ssd && sudo mount /dev/nvme1n1 /mnt/ssd`
 * Set docker config: `echo '{"data-root":"/mnt/ssd/docker-data"}' | sudo tee /etc/docker/daemon.json`
-* Change overlay driver: `sudo sed -i -e 's/aufs/overlay2/g' /etc/systemd/system/docker.service.d/10-machine.conf`
-* Reload and restart docker: `sudo systemctl daemon-reload && sudo systemctl restart docker`
-* Verify: `sudo docker info | grep /mnt/ssd/docker-data && sudo docker info | grep overlay2`
 
 ## Connecting to the management server
 
 You can run the following script multiple times, from multiple hosts to enable access
 (assuming you have the server, configuration and keys as described above)
 
+(Optional) Specify docker-machine args:
+* If you used the recommended configuration on AWS/GCP with SSD disk, set the overlay2 storage driver:
+  * `DOCKER_MACHINE_ARGS="--engine-storage-driver=overlay2"`
+
+(Re)create the machine
+
 ```
 source /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.cloud-management-docker-machine.env
 docker-machine rm -f ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management
-docker-machine create ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management
+docker-machine create ${CKAN_CLOUD_NAMESPACE}-ckan-cloud-management $DOCKER_MACHINE_ARGS
 ```
 
 Activate the machine
@@ -128,13 +173,19 @@ Verify Docker Machine installation:
 docker version && docker run hello-world
 ```
 
-Verify the activated machine
+(Optional) Verify SSD disk
 
 ```
-docker-machine active
+docker info | grep "Docker Root Dir: /mnt/ssd/docker-data" && docker info | grep "Storage Driver: overlay2"
 ```
 
-All the following commands should run on the relevant active Docker Machine
+Verify the activated docker-machine name
+
+```
+echo $DOCKER_MACHINE_NAME
+```
+
+All the following commands should run while activated to the relevant Docker Machine
 
 ## Initialize ckan-cloud-cluster on the management server
 
@@ -155,12 +206,14 @@ and running from the project directory: `./ckan-cloud-cluster.sh init_dev`
 Install and configure Nginx and Let's Encrypt (will delete any existing configurations)
 
 ```
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster install_nginx_ssl
+docker-machine ssh $DOCKER_MACHINE_NAME sudo ckan-cloud-cluster install_nginx_ssl
 ```
 
-For AWS - you can get the server's hostname using: `docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster get_aws_public_hostname`
+Get the public hostname/IP address - 
 
-Otherwise - get the public IP of the server.
+```
+echo $DOCKER_HOST
+```
 
 Set the root domain for the management server and the CKAN instances
 
@@ -170,8 +223,10 @@ CKAN_CLOUD_ROOT_DOMAIN="your-domain.com"
 
 Set DNS CNAME records or /etc/hosts entries for the following subdomains to this IP (you could prefix/suffix the subdomains to namespace multiple clouds):
 
-* `ckan-cloud-management.${CKAN_CLOUD_ROOT_DOMAIN}`
-* `ckan-cloud-jenkins.${CKAN_CLOUD_ROOT_DOMAIN}`
+```
+echo ckan-cloud-management.${CKAN_CLOUD_ROOT_DOMAIN}
+echo ckan-cloud-jenkins.${CKAN_CLOUD_ROOT_DOMAIN}
+```
 
 (for maximal security, add a CAA record: `your-domain.com. CAA 128 issue "letsencrypt.org"`)
 
@@ -182,7 +237,7 @@ LETSENCRYPT_EMAIL=your@email.com
 CERTBOT_DOMAINS="ckan-cloud-management.${CKAN_CLOUD_ROOT_DOMAIN},ckan-cloud-jenkins.${CKAN_CLOUD_ROOT_DOMAIN}"
 LETSENCRYPT_DOMAIN=ckan-cloud-management.${CKAN_CLOUD_ROOT_DOMAIN}
 
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster setup_ssl ${LETSENCRYPT_EMAIL} ${CERTBOT_DOMAINS} ${LETSENCRYPT_DOMAIN}
+docker-machine ssh $DOCKER_MACHINE_NAME sudo ckan-cloud-cluster setup_ssl ${LETSENCRYPT_EMAIL} ${CERTBOT_DOMAINS} ${LETSENCRYPT_DOMAIN}
 ```
 
 ## Deploy Rancher
@@ -190,10 +245,12 @@ docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster setup_ssl ${
 ```
 RANCHER_SERVER_NAME=ckan-cloud-management.${CKAN_CLOUD_ROOT_DOMAIN}
 
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_rancher ${RANCHER_SERVER_NAME}
+docker-machine ssh $DOCKER_MACHINE_NAME sudo ckan-cloud-cluster start_rancher ${RANCHER_SERVER_NAME}
 ```
 
 Activate via the web-ui at https://ckan-cloud-management.CKAN_CLOUD_ROOT_DOMAIN/
+
+Rancher might take some time to start, follow logs using `docker logs -f rancher`
 
 ## Deploy Jenkins
 
@@ -203,7 +260,7 @@ Start Jenkins from a published release of [ckan-cloud-docker Jenkins](https://gi
 JENKINS_SERVER_NAME=ckan-cloud-jenkins.${CKAN_CLOUD_ROOT_DOMAIN}
 JENKINS_IMAGE=viderum/ckan-cloud-docker:jenkins-v0.0.4
 
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_jenkins ${JENKINS_SERVER_NAME} ${JENKINS_IMAGE}
+docker-machine ssh $DOCKER_MACHINE_NAME sudo ckan-cloud-cluster start_jenkins ${JENKINS_SERVER_NAME} ${JENKINS_IMAGE}
 ```
 
 To use a latest dev image, set `JENKINS_IMAGE=viderum/ckan-cloud-docker:jenkins-latest` and re-run the start_jenkins command.
@@ -214,8 +271,10 @@ then restart Jenkins: `docker restart jenkins`
 Get the admin password
 
 ```
-docker-machine ssh $(docker-machine active) sudo cat /var/jenkins_home/secrets/initialAdminPassword
+docker-machine ssh $DOCKER_MACHINE_NAME sudo cat /var/jenkins_home/secrets/initialAdminPassword
 ```
+
+Jenkins might take some time to start until the password is available, follow logs using `docker logs -f jenkins`
 
 Activate via the web-ui at https://ckan-cloud-jenkins.CKAN_CLOUD_ROOT_DOMAIN
 
