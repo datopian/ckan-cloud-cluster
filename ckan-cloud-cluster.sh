@@ -24,6 +24,10 @@ client_side() {
     ! server_side
 }
 
+docker-machine-active() {
+    echo "${DOCKER_MACHINE_NAME}"
+}
+
 install_nginx_ssl() {
     ! server_side && return 1
     info Installing Nginx and Certbot with strong SSL security &&\
@@ -183,7 +187,7 @@ add_nginx_site_http2_proxy() {
 
 init() {
     ! client_side && return 1
-    ! local ACTIVE_DOCKER_MACHINE=`docker-machine active` && return 1
+    ! local ACTIVE_DOCKER_MACHINE=`docker-machine-active` && return 1
     local CKAN_CLOUD_CLUSTER_VERSION="${1}"
     info Initializing Docker Machine ${ACTIVE_DOCKER_MACHINE} with ckan-cloud-cluster v${CKAN_CLOUD_CLUSTER_VERSION} &&\
     docker-machine ssh ${ACTIVE_DOCKER_MACHINE} \
@@ -207,7 +211,7 @@ init() {
 
 init_dev() {
     ! client_side && return 1
-    ! local ACTIVE_DOCKER_MACHINE=`docker-machine active` && return 1
+    ! local ACTIVE_DOCKER_MACHINE=`docker-machine-active` && return 1
     ! [ -e ./ckan-cloud-cluster.sh ] && error init_dev must run from ckan-cloud-cluster project directory && return 1
     info Syncing local directory to Docker Machine ${ACTIVE_DOCKER_MACHINE} &&\
     docker-machine ssh ${ACTIVE_DOCKER_MACHINE} \
@@ -228,7 +232,7 @@ init_dev() {
 
 init_ckan_cloud_docker_dev() {
     ! client_side && return 1
-    ! local ACTIVE_DOCKER_MACHINE=`docker-machine active` && return 1
+    ! local ACTIVE_DOCKER_MACHINE=`docker-machine-active` && return 1
     CKAN_CLOUD_DOCKER_DIR="${1}"
     [ -z "${CKAN_CLOUD_DOCKER_DIR}" ] && error missing required args && return 1
     ! [ -e "${CKAN_CLOUD_DOCKER_DIR}/jenkins/scripts/create_instance.sh" ] && error invalid ckan-cloud-docker directory && return 1
@@ -379,7 +383,7 @@ upgrade() {
     ( [ -z "${CKAN_CLOUD_CLUSTER_VERSION}" ] || [ -z "${CKAN_CLOUD_DOCKER_VERSION}" ] ) && error missing required args && return 1
     info Upgrading ckan-cloud-cluster to v${CKAN_CLOUD_CLUSTER_VERSION} &&\
     init $CKAN_CLOUD_CLUSTER_VERSION &&\
-    docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster init_ckan_cloud ${CKAN_CLOUD_DOCKER_VERSION}
+    docker-machine ssh $(docker-machine-active) sudo ckan-cloud-cluster init_ckan_cloud ${CKAN_CLOUD_DOCKER_VERSION}
     [ "$?" != "0" ] && error Failed to upgrade CKAN Cloud && return 1
     great_success && return 0
 }
