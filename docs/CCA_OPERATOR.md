@@ -43,7 +43,7 @@ Save the kubeconfig on the managmenet server for cca-operator
 
 ```
 cat /etc/ckan-cloud/${CKAN_CLOUD_NAMESPACE}/.kube-config \
-    | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.kube-config"'
+    | docker-machine ssh $DOCKER_MACHINE_NAME 'bash -c "cat > /etc/ckan-cloud/.kube-config"'
 ```
 
 Save the domain cca-operator secrets in the management server
@@ -53,13 +53,13 @@ echo '
 # using hostname - for AWS
 # export CF_ZONE_UPDATE_DATA_TEMPLATE="{\"type\":\"CNAME\",\"name\":\"{{CF_SUBDOMAIN}}\",\"content\":\"{{CF_HOSTNAME}}\",\"ttl\":120,\"proxied\":false}"
 # using IP - for GKE
-export CF_ZONE_UPDATE_DATA_TEMPLATE="{\"type\":\"A\",\"name\":\"{{CF_SUBDOMAIN}}\",\"content":\"{{CF_HOSTNAME}}\",\"ttl\":120,\"proxied\":false}"
+export CF_ZONE_UPDATE_DATA_TEMPLATE="{\"type\":\"A\",\"name\":\"{{CF_SUBDOMAIN}}\",\"content\":\"{{CF_HOSTNAME}}\",\"ttl\":120,\"proxied\":false}"
 
 export CF_AUTH_EMAIL=""
 export CF_AUTH_KEY=""
 export CF_ZONE_NAME="your-domain.com"
 export CF_RECORD_NAME_SUFFIX=".your-domain.com"
-' | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.cca_operator-secrets.env"'
+' | docker-machine ssh $DOCKER_MACHINE_NAME 'bash -c "cat > /etc/ckan-cloud/.cca_operator-secrets.env"'
 ```
 
 Deploy a cca-operator version of a published release from [here](https://github.com/ViderumGlobal/ckan-cloud-docker/releases)
@@ -69,7 +69,7 @@ CCA_OPERATOR_VERSION=v0.0.6
 # CCA_OPERATOR_VERSION=latest
 
 echo 'export CCA_OPERATOR_IMAGE="viderum/ckan-cloud-docker:cca-operator-'${CCA_OPERATOR_VERSION}'"' \
-    | docker-machine ssh $(docker-machine active) 'bash -c "cat > /etc/ckan-cloud/.cca_operator-image.env"'
+    | docker-machine ssh $DOCKER_MACHINE_NAME 'bash -c "cat > /etc/ckan-cloud/.cca_operator-image.env"'
 ```
 
 Alternatively - Set CCA_OPERATOR_VERSION to latest and build cca-operator locally while connected to the Docker Machine - `pushd ../ckan-cloud-docker && docker-compose build cca-operator && popd`
@@ -77,13 +77,13 @@ Alternatively - Set CCA_OPERATOR_VERSION to latest and build cca-operator locall
 Initialize cca-operator
 
 ```
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster init_cca_operator
+docker-machine ssh $DOCKER_MACHINE_NAME sudo ckan-cloud-cluster init_cca_operator
 ```
 
 ## Install Helm
 
 ```
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster install_helm
+docker-machine ssh $DOCKER_MACHINE_NAME sudo ckan-cloud-cluster install_helm
 ```
 
 ## Start cca-operator server
@@ -91,13 +91,13 @@ docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster install_helm
 Add your personal SSH key to the server
 
 ```
-cat ~/.ssh/id_rsa.pub | docker-machine ssh $(docker-machine active) /etc/ckan-cloud/cca_operator.sh ./add-server-authorized-key.sh
+cat ~/.ssh/id_rsa.pub | docker-machine ssh $DOCKER_MACHINE_NAME /etc/ckan-cloud/cca_operator.sh ./add-server-authorized-key.sh
 ```
 
 (re)Start the server - must be run after adding authorized keys
 
 ```
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_cca_operator_server
+docker-machine ssh $DOCKER_MACHINE_NAME sudo ckan-cloud-cluster start_cca_operator_server
 ```
 
 Make sure firewall is set to permit port 8022
@@ -133,7 +133,7 @@ You can connect using one of the following methods:
   * `ssh -p 8022 root@ckan-cloud-management.your-domain.com -tt ./cca-operator.sh bash`
 * Connecting via Docker Machine
   * Assuming you are connected to the relevant management server Docker Machine
-  * `docker-machine ssh $(docker-machine active) -tt /etc/ckan-cloud/cca_operator_shell.sh`
+  * `docker-machine ssh $DOCKER_MACHINE_NAME -tt /etc/ckan-cloud/cca_operator_shell.sh`
 
 Once you are connected to the shell, enable bash completion:
 
@@ -173,7 +173,7 @@ cat "${KEY_FILE}.pub" | ssh -p 8022 "${MANAGEMENT_SERVER}" \
 Restart cca-operator server
 
 ```
-docker-machine ssh $(docker-machine active) sudo ckan-cloud-cluster start_cca_operator_server
+docker-machine ssh $DOCKER_MACHINE_NAME sudo ckan-cloud-cluster start_cca_operator_server
 ```
 
 Try to run a cca-operator command
