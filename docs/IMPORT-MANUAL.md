@@ -16,15 +16,17 @@ Create the dbs
 INSTANCE_ID=
 DB_PASSWORD=
 DS_RW_PASSWORD=
-DS_RO_PASSWORD=
 
 # connection details to the centralized DB
 PGHOST=
 PGUSER=
 export PGPASSWORD=
 
+# source the import branch functions
+source <(curl https://raw.githubusercontent.com/ViderumGlobal/ckan-cloud-docker/import-from-ckan-envvars/cca-operator/functions.sh)
+
 create_db $PGHOST $PGUSER $INSTANCE_ID $DB_PASSWORD &&\
-create_datastore_db $PGHOST $PGUSER $INSTANCE_ID ${INSTANCE_ID}-datastore $DS_RW_PASSWORD ${INSTANCE_ID}-datastore-ro $DS_RO_PASSWORD
+create_db_base $PGHOST $PGUSER ${INSTANCE_ID}-datastore $DS_RW_PASSWORD
 ```
 
 Create the solrcloud collection
@@ -117,11 +119,60 @@ import_dumps_to_cloudsql() {
     local _ds_dump="${_site_id}-datastore.`date +%Y%m%d`.dump.sql"
     gcloud sql import sql ckan-cloud-staging "gs://viderum-deis-backups/postgres/$(date +%Y%m%d)/${_db_dump}" --database=$_db_name &&\
     gcloud sql import sql ckan-cloud-staging "gs://viderum-deis-backups/postgres/$(date +%Y%m%d)/${_ds_dump}" --database=$_ds_name &&\
-    echo Great Success && echo "imported DB names: ${_site_id} ${_site_id}-datastore" && return 0
+    echo Great Success && echo "imported DB names: ${_db_name} ${_ds_name}" && return 0
     echo Failed && return 1
 }
 
 import_dumps_to_cloudsql <SITE_ID_FOR_FILES> <SITE_DB_NAME> <DATASTORE_DB_NAME>
+```
+
+## Setup datastore DB
+
+Ssh to cca-operator
+
+```
+ssh -p 8022 root@cloud-management.ckan.io -tt ./cca-operator.sh bash
+
+# centralized DB connection details
+export POSTGRES_HOST=
+export POSTGRES_USER=
+export PGPASSWORD=
+
+# instance details
+export INSTANCE_ID=
+export SITE_USER=$INSTANCE_ID
+export DS_RO_USER="${INSTANCE_ID}-datastore-ro"
+export DS_RO_PASSWORD=
+export DS_RW_USER="${INSTANCE_ID}-datastore"
+export DS_RW_PASSWORD=
+
+psql -v ON_ERROR_STOP=on -h "${POSTGRES_HOST}" -U "${POSTGRES_USER}" -c "
+    CREATE ROLE \"${DS_RO_USER}\" WITH LOGIN PASSWORD '${DS_RO_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+" &&\
+psql -v ON_ERROR_STOP=on -h "${POSTGRES_HOST}" -U "${POSTGRES_USER}" -d "${DS_RW_USER}" -c "
+    REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+    REVOKE USAGE ON SCHEMA public FROM PUBLIC;
+    GRANT CREATE ON SCHEMA public TO \"${SITE_USER}\";
+    GRANT USAGE ON SCHEMA public TO \"${SITE_USER}\";
+    GRANT CREATE ON SCHEMA public TO \"${DS_RW_USER}\";
+    GRANT USAGE ON SCHEMA public TO \"${DS_RW_USER}\";
+    GRANT \"${SITE_USER}\" TO \"${POSTGRES_USER}\";
+    ALTER DATABASE \"${SITE_USER}\" OWNER TO ${POSTGRES_USER};
+    ALTER DATABASE \"${DS_RW_USER}\" OWNER TO ${POSTGRES_USER};
+    REVOKE CONNECT ON DATABASE \"${SITE_USER}\" FROM \"${DS_RO_USER}\";
+    GRANT CONNECT ON DATABASE \"${DS_RW_USER}\" TO \"${DS_RO_USER}\";
+    GRANT USAGE ON SCHEMA public TO \"${DS_RO_USER}\";
+    ALTER DATABASE \"${SITE_USER}\" OWNER TO \"${SITE_USER}\";
+    GRANT \"${DS_RW_USER}\" TO \"${POSTGRES_USER}\";
+    ALTER DATABASE \"${DS_RW_USER}\" OWNER TO \"${DS_RW_USER}\";
+" &&\
+psql -v ON_ERROR_STOP=on -h "${POSTGRES_HOST}" -U "${POSTGRES_USER}" -d "${DS_RW_USER}" -c "
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"${DS_RO_USER}\";
+    ALTER DEFAULT PRIVILEGES FOR USER \"${DS_RW_USER}\" IN SCHEMA public GRANT SELECT ON TABLES TO \"${DS_RO_USER}\";
+" &&\
+bash ./templater.sh ./datastore-permissions.sql.template | grep ' OWNER TO ' -v \
+    | psql -v ON_ERROR_STOP=on -h "${POSTGRES_HOST}" -U "${POSTGRES_USER}" -d "${DS_RW_USER}" &&\
+echo Great Success!
 ```
 
 ## Deploy
