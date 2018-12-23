@@ -1,5 +1,7 @@
 # Importing existing CKAN instances / data to ckan-cloud
 
+**work-in-progress** not stable/ready for use
+
 The import process supports different source types to import from:
 
 * `envvars`: import from an instance configured with ckan-envvars plugin
