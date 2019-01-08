@@ -20,19 +20,6 @@ gsutil acl ch -u ${GCLOUD_SQL_SERVICE_ACCOUNT}:W gs://${GCLOUD_SQL_DUMPS_BUCKET}
 gsutil acl ch -R -u ${GCLOUD_SQL_SERVICE_ACCOUNT}:R gs://${GCLOUD_SQL_DUMPS_BUCKET}/
 ```
 
-## Update ckan-infra secret
-
-should contain the following values:
-
-* POSTGRES_HOST
-* POSTGRES_PASSWORD
-* POSTGRES_USER
-* SOLR_HTTP_ENDPOINT
-* SOLR_REPLICATION_FACTOR
-* SOLR_NUM_SHARDS
-* GCLOUD_SQL_INSTANCE_NAME
-* GCLOUD_SQL_PROJECT
-
 ## Import DBs from Deis
 
 Connect to the Deis cluster
@@ -54,8 +41,13 @@ Follow the interactive gcloud initialization
 Set details of source instance and id for the dump files:
 
 ```
+# DB sqlalchemy url (from the .env file)
 DB_URL=
+
+# DataStore sqlalchemy url (from the .env file)
 DATASTORE_URL=
+
+# old deis instance id
 SITE_ID=
 ```
 
@@ -85,47 +77,6 @@ The output should contain a config name like `ckan_27_default`
 
 see ckan-cloud-dataflows for importing the configs to searchstax - all configs should be imported already
 
-## Create the import configuration
+## create an instance using ckan-cloud-operator
 
-Create an import configuration yaml and store in cca-operator
-
-```
-# the new instance id
-INSTANCE_ID=my-imported-instance-id
-
-# urls to db and datastore dumps on google storage bucket
-GCLOUD_SQL_DB_DUMP_URL=gs://bucket/path/to/db.dump
-GCLOUD_SQL_DATASTORE_DUMP_URL=gs://bucket/path/to/datastore.dump
-
-# solr config name
-SOLRCLOUD_COLLECTION_CONFIG_NAME=solr_config_name
-
-# path to yaml file containg the instance env configuration
-INSTANCE_ENV_FILE=../ckan-cloud-dataflows/data/deis-instance-config-files/name.yaml
-
-# ckan image
-CKAN_IMAGE=
-
-echo '
-instance-type: deis-envvars
-import:
-  gcloud_sql_db_dump_url: '$GCLOUD_SQL_DB_DUMP_URL'
-  gcloud_sql_datastore_dump_url: '$GCLOUD_SQL_DATASTORE_DUMP_URL'
-  solrcloud_collection_config_name: '$SOLRCLOUD_COLLECTION_CONFIG_NAME'
-  ckan_image: '$CKAN_IMAGE'
-'"$(cat $INSTANCE_ENV_FILE)"'
-' | ./set-instance-values.sh $INSTANCE_ID
-```
-
-Login to gcloud (TODO: use default compute service account)
-
-```
-source source /google-cloud-sdk/path.bash.inc
-gcloud auth login
-```
-
-Import and and deploy the instance
-
-```
-./import-deis-instance.sh $INSTANCE_ID
-```
+Use [ckan-cloud-operator](https://github.com/ViderumGlobal/ckan-cloud-operator) to create an instance using deis-instance create from-gcloud-envvars command
