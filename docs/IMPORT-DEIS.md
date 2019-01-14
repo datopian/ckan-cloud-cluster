@@ -1,5 +1,15 @@
 # Importing deis instances to ckan-cloud on GKE
 
+-----
+
+**DEPRECATED**
+
+**Please see updated doc at [ckan-cloud-operator/docs/IMPORT-DEIS.md](https://github.com/ViderumGlobal/ckan-cloud-operator/blob/master/docs/IMPORT-DEIS.md)**
+
+-----
+
+<pre>
+
 ## Prepare Gcloud SQL for import via Google Store bucket
 
 Get the service account email for the cloud sql instance (you should be authorized to the relevant Google account)
@@ -80,3 +90,5 @@ see ckan-cloud-dataflows for importing the configs to searchstax - all configs s
 ## create an instance using ckan-cloud-operator
 
 Use [ckan-cloud-operator](https://github.com/ViderumGlobal/ckan-cloud-operator) to create an instance using deis-instance create from-gcloud-envvars command
+
+</pre>
