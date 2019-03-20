@@ -96,6 +96,9 @@ server {
     info Verifying certbot renewal systemd timer &&\
     systemctl list-timers | grep certbot &&\
     cat /lib/systemd/system/certbot.timer &&\
+    if ! cat /lib/systemd/system/certbot.service | grep "service nginx reload"; then
+        sed -i 's/-q renew/-q renew --deploy-hook "service nginx reload"/' /lib/systemd/system/certbot.service
+    fi &&\
     info Restarting Nginx &&\
     systemctl restart nginx
     [ "$?" != "0" ] && error Failed to install strong security Nginx and Certbot && return 1
